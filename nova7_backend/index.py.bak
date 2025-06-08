@@ -1,0 +1,2479 @@
+import os
+from dotenv import load_dotenv
+
+# Determine the path to the .env file (in the parent directory of nova7_backend)
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+dotenv_path = os.path.join(BASE_DIR, '.env')
+load_dotenv(dotenv_path)
+
+import csv
+from io import StringIO
+import uuid
+from flask import Flask, request, jsonify, make_response, url_for, send_from_directory
+from flask_mail import Mail, Message
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime, timedelta, timezone
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+from flask_cors import CORS
+from flask_jwt_extended import (
+    create_access_token, JWTManager, jwt_required, get_jwt_identity, 
+    decode_token
+)
+from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
+from sqlalchemy import func, JSON, or_
+from google.cloud import storage
+from google.cloud.storage.blob import Blob
+import stripe
+import logging
+
+# Create a Flask application instance
+app = Flask(__name__) 
+CORS(app, supports_credentials=True, origins=["http://127.0.0.1:5500", "http://127.0.0.1:5501", os.environ.get("FRONTEND_URL","http://localhost:3000"), "https://nova7.vercel.app"])
+
+# --- App Configuration ---
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "default-super-secret-key-for-dev-change-me")
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24) 
+app.config["JWT_TOKEN_LOCATION"] = ["headers"] 
+app.config["JWT_ERROR_MESSAGE_KEY"] = "message"
+
+if os.environ.get('VERCEL'):
+    VERCEL_TMP_DIR = '/tmp'
+else:
+    VERCEL_TMP_DIR = os.path.abspath(os.path.dirname(__file__))
+
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL_INTERNAL', 'postgresql://nova7:Disaster2024@localhost:5432/nova7_db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False 
+
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 465))
+app.config['MAIL_USE_SSL'] = os.environ.get('MAIL_USE_SSL', 'True').lower() == 'true'
+app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'False').lower() == 'true'
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', 'sapiens@ndatabaye.com') 
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', 'mmcd sgzx kerh geru')    
+app.config['MAIL_DEFAULT_SENDER'] = ('nova7 App', os.environ.get('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME', 'noreply@example.com')))
+
+# Define upload folders
+if os.environ.get('VERCEL'):
+    BASE_UPLOAD_DIR = '/tmp/uploads'
+else:
+    BASE_UPLOAD_DIR = os.path.join(VERCEL_TMP_DIR, 'uploads')
+
+app.config['PROFILE_UPLOAD_FOLDER'] = os.path.join(BASE_UPLOAD_DIR, 'profiles')
+app.config['MARKETPLACE_UPLOAD_FOLDER'] = os.path.join(BASE_UPLOAD_DIR, 'marketplace')
+app.config['COMMUNITY_UPLOAD_FOLDER'] = os.path.join(BASE_UPLOAD_DIR, 'community')
+
+# Initialize GCS
+try:
+    storage_client = storage.Client.from_service_account_json(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
+    bucket = storage_client.bucket(os.environ.get("GCS_BUCKET_NAME"))
+    if not bucket.exists():
+        logging.error(f"GCS bucket {os.environ.get('GCS_BUCKET_NAME')} does not exist")
+        storage_client = None
+        bucket = None
+    else:
+        print(f"GCS initialized with bucket: {os.environ.get('GCS_BUCKET_NAME')}")
+        logging.info(f"GCS bucket: {os.environ.get('GCS_BUCKET_NAME')}")
+except Exception as e:
+    storage_client = None
+    bucket = None
+    logging.error(f"GCS initialization failed: {str(e)}")
+    print(f"GCS initialization failed: {str(e)}")
+
+# Stripe Configuration
+app.config['STRIPE_SECRET_KEY'] = os.environ.get('STRIPE_SECRET_KEY', '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')
+app.config['STRIPE_PUBLISHABLE_KEY'] = os.environ.get('STRIPE_PUBLISHABLE_KEY', 'pk_live_51QlhX1DV4GGUfngRRIJi02QYB2pTZg2bbX9T4xwM0i6FflEPt2FtV7ydZfNks9I9vOAcmwsLGM1U7tzbpmaP454C00qsme0XJ8')
+stripe.api_key = app.config['STRIPE_SECRET_KEY']
+if not app.config['STRIPE_SECRET_KEY']:
+    print("WARNING: STRIPE_SECRET_KEY environment variable not set. Stripe payments will not work.")
+elif app.config['STRIPE_SECRET_KEY'].startswith('sk_test_'):
+    print("Using Stripe test mode.")
+else:
+    print("WARNING: Using live STRIPE_SECRET_KEY. Ensure this is intentional for production.")
+
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+jwt = JWTManager(app) 
+db = SQLAlchemy(app)
+mail = Mail(app)
+
+# --- Define Database Models ---
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    full_name = db.Column(db.String(150), nullable=False)
+    email = db.Column(db.String(150), unique=True, nullable=False)
+    password_hash = db.Column(db.String(256), nullable=False)
+    company_name = db.Column(db.String(150), nullable=True)
+    business_name = db.Column(db.String(150), nullable=True)
+    id_number = db.Column(db.String(50), nullable=True)
+    id_document_url = db.Column(db.String(500), nullable=True)
+    kyc_status = db.Column(db.String(20), default="pending", nullable=False)
+    role = db.Column(db.String(50), default="user", nullable=False)
+    profile_picture_url = db.Column(db.String(500), nullable=True)
+    is_email_verified = db.Column(db.Boolean, default=False, nullable=False)
+    email_verification_token = db.Column(db.String(100), nullable=True, unique=True)
+    email_verification_token_expires = db.Column(db.DateTime, nullable=True)
+    balance = db.Column(db.Float, default=0.0, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    transactions = db.relationship("Transaction", backref="user", lazy=True, cascade="all, delete-orphan")
+    marketplace_items = db.relationship("MarketplaceItem", backref="seller", lazy="dynamic", cascade="all, delete-orphan")
+    community_posts = db.relationship("CommunityPost", backref="author", lazy="dynamic", cascade="all, delete-orphan")
+    comments = db.relationship("Comment", backref="commenter", lazy="dynamic", cascade="all, delete-orphan")
+    likes = db.relationship("Like", backref="liker", lazy="dynamic", cascade="all, delete-orphan")
+    admin_teams = db.relationship("TeamMembership", foreign_keys="TeamMembership.admin_id", backref="admin_user", lazy="dynamic", cascade="all, delete-orphan")
+    helper_in_teams = db.relationship("TeamMembership", foreign_keys="TeamMembership.helper_id", backref="helper_user", lazy="dynamic", cascade="all, delete-orphan")
+    loan_requests_made = db.relationship("LoanRequest", foreign_keys="LoanRequest.requester_id", backref="requester", lazy="dynamic", cascade="all, delete-orphan")
+    loan_offers_made = db.relationship("LoanOffer", foreign_keys="LoanOffer.lender_id", backref="lender", lazy="dynamic", cascade="all, delete-orphan")
+    loan_agreements_as_borrower = db.relationship("LoanAgreement", foreign_keys="LoanAgreement.borrower_id", backref="borrower_user", lazy="dynamic", cascade="all, delete-orphan")
+    loan_agreements_as_lender = db.relationship("LoanAgreement", foreign_keys="LoanAgreement.lender_id", backref="lender_user", lazy="dynamic", cascade="all, delete-orphan")
+    lendable_products_owned = db.relationship("LendableProduct", backref="owner", lazy="dynamic", cascade="all, delete-orphan")
+    product_loan_requests_made = db.relationship("ProductLoanAgreement", foreign_keys="ProductLoanAgreement.borrower_id", backref="product_borrower", lazy="dynamic", cascade="all, delete-orphan")
+    withdrawal_requests = db.relationship("WithdrawalRequest", backref="user", lazy="dynamic", cascade="all, delete-orphan")
+    def __repr__(self): return f"<User {self.full_name}>"
+
+class Transaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False) 
+    type = db.Column(db.String(50), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    category = db.Column(db.String(100), nullable=False)
+    date = db.Column(db.Date, nullable=False) 
+    description = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    def to_dict(self): return {"id": self.id, "user_id": self.user_id, "type": self.type, "amount": self.amount, "category": self.category, "date": self.date.strftime('%Y-%m-%d'), "description": self.description, "created_at": self.created_at.strftime('%Y-%m-%d %H:%M:%S')}
+    def __repr__(self): return f'<Transaction {self.id} {self.type} {self.amount}>'
+
+class MarketplaceItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False) 
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    category = db.Column(db.String(100), nullable=False)
+    price = db.Column(db.Float, nullable=False)
+    condition = db.Column(db.String(50), nullable=True) 
+    image_urls = db.Column(JSON, nullable=True) 
+    location = db.Column(db.String(200), nullable=True)
+    status = db.Column(db.String(50), default='active', nullable=False) 
+    is_service = db.Column(db.Boolean, default=False, nullable=False)
+    quantity = db.Column(db.Integer, nullable=True) 
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    orders = db.relationship('Order', backref='item', lazy='dynamic')
+    def to_dict(self): return {"id": self.id, "user_id": self.user_id, "seller_name": self.seller.full_name if self.seller else "N/A", "seller_email": self.seller.email if self.seller else "N/A", "title": self.title, "description": self.description, "category": self.category, "price": self.price, "condition": self.condition, "image_urls": self.image_urls or [], "location": self.location, "status": self.status, "is_service": self.is_service, "quantity": self.quantity, "created_at": self.created_at.strftime('%Y-%m-%d %H:%M:%S'), "updated_at": self.updated_at.strftime('%Y-%m-%d %H:%M:%S')}
+    def __repr__(self): return f'<MarketplaceItem {self.id} {self.title}>'
+
+class Order(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('marketplace_item.id'), nullable=False)
+    buyer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    quantity_bought = db.Column(db.Integer, nullable=False, default=1)
+    total_price = db.Column(db.Float, nullable=False)
+    order_status = db.Column(db.String(50), default='pending_payment', nullable=False) 
+    payment_gateway_reference = db.Column(db.String(200), nullable=True) 
+    stripe_payment_intent_id = db.Column(db.String(255), nullable=True, unique=True) 
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    transfer = db.relationship('ProductTransfer', backref='order', uselist=False, cascade="all, delete-orphan")
+    buyer = db.relationship('User', foreign_keys=[buyer_id], backref='purchases')
+
+class ProductTransfer(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False, unique=True)
+    status = db.Column(db.String(50), default='pending_shipment', nullable=False) 
+    tracking_info = db.Column(db.String(200), nullable=True)
+    initiated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    shipped_at = db.Column(db.DateTime, nullable=True)
+    delivered_at = db.Column(db.DateTime, nullable=True)
+    receipt_confirmed_at = db.Column(db.DateTime, nullable=True)
+
+class CommunityPost(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    image_url = db.Column(db.String(500), nullable=True) 
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan")
+    likes = db.relationship('Like', backref='post', lazy='dynamic', cascade="all, delete-orphan")
+    def to_dict(self, current_user_id=None): 
+        is_liked_by_current_user = False
+        if current_user_id:
+            like = Like.query.filter_by(user_id=current_user_id, post_id=self.id).first()
+            if like: is_liked_by_current_user = True
+        return {"id": self.id, "user_id": self.user_id, "author_name": self.author.full_name if self.author else "N/A", "author_avatar_url": self.author.profile_picture_url if self.author and self.author.profile_picture_url else None, "content": self.content, "image_url": self.image_url, "created_at": self.created_at.strftime('%Y-%m-%d %H:%M:%S'), "likes_count": self.likes.count(), "comments_count": self.comments.count(), "is_liked_by_current_user": is_liked_by_current_user }
+    def __repr__(self): return f'<CommunityPost {self.id}>'
+
+class Comment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)) 
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    post_id = db.Column(db.Integer, db.ForeignKey('community_post.id'), nullable=False)
+    def to_dict(self): return {"id": self.id, "content": self.content, "created_at": self.created_at.strftime('%Y-%m-%d %H:%M:%S'), "updated_at": self.updated_at.strftime('%Y-%m-%d %H:%M:%S'), "user_id": self.user_id, "commenter_name": self.commenter.full_name if self.commenter else "N/A", "commenter_avatar_url": self.commenter.profile_picture_url if self.commenter and self.commenter.profile_picture_url else None, "post_id": self.post_id}
+    def __repr__(self): return f'<Comment {self.id} by User {self.user_id}>'
+
+class Like(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    post_id = db.Column(db.Integer, db.ForeignKey('community_post.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    __table_args__ = (db.UniqueConstraint('user_id', 'post_id', name='_user_post_uc'),)
+    def __repr__(self): return f'<Like by User {self.user_id} on Post {self.post_id}>'
+
+class UserSetting(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
+    user = db.relationship('User', backref=db.backref('settings', uselist=False)) 
+    language = db.Column(db.String(10), default='en') 
+    email_notifications_enabled = db.Column(db.Boolean, default=True)
+    theme = db.Column(db.String(20), default='system') 
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    def to_dict(self): return {"language": self.language, "email_notifications_enabled": self.email_notifications_enabled, "theme": self.theme}
+
+class ResourceCategory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(100), unique=True, nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    icon = db.Column(db.String(50), nullable=True) 
+    description = db.Column(db.String(255), nullable=True)
+    articles = db.relationship('Article', backref='category', lazy='dynamic')
+    def to_dict(self): return {"id": self.id, "slug": self.slug, "name": self.name, "icon": self.icon, "description": self.description}
+
+class Article(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(200), unique=True, nullable=False) 
+    title = db.Column(db.String(200), nullable=False)
+    excerpt = db.Column(db.Text, nullable=True) 
+    content_html = db.Column(db.Text, nullable=False) 
+    category_id = db.Column(db.Integer, db.ForeignKey('resource_category.id'), nullable=False)
+    author_name = db.Column(db.String(100), default="nova7 Team")
+    read_time_minutes = db.Column(db.Integer, nullable=True)
+    published_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    is_published = db.Column(db.Boolean, default=True, nullable=False)
+    def to_dict(self, include_content=False):
+        data = {"id": self.id, "slug": self.slug, "title": self.title, "excerpt": self.excerpt, "category_slug": self.category.slug if self.category else None, "category_name": self.category.name if self.category else None, "author_name": self.author_name, "read_time_minutes": self.read_time_minutes, "published_at": self.published_at.strftime('%Y-%m-%d')}
+        if include_content: data["content_html"] = self.content_html
+        return data
+
+class LoanRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    requester_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    amount_requested = db.Column(db.Float, nullable=False)
+    reason_summary = db.Column(db.String(255), nullable=False)
+    detailed_proposal = db.Column(db.Text, nullable=True)
+    preferred_interest_rate = db.Column(db.Float, nullable=True)
+    preferred_repayment_terms = db.Column(db.Text, nullable=True)
+    target_lender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    is_public_request = db.Column(db.Boolean, default=True, nullable=False)
+    status = db.Column(db.String(50), default='pending_offers', nullable=False) 
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    offers = db.relationship('LoanOffer', backref='loan_request', lazy='dynamic', cascade="all, delete-orphan")
+    agreements = db.relationship('LoanAgreement', foreign_keys='LoanAgreement.loan_request_id', backref='originating_loan_request', lazy='dynamic', cascade="all, delete-orphan")
+    target_lender = db.relationship('User', foreign_keys=[target_lender_id])
+
+class LoanOffer(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    lender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    loan_request_id = db.Column(db.Integer, db.ForeignKey('loan_request.id'), nullable=False) 
+    amount_offered = db.Column(db.Float, nullable=False)
+    interest_rate_offered = db.Column(db.Float, nullable=False) 
+    repayment_terms_offered = db.Column(db.Text, nullable=True) 
+    message_to_requester = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(50), default='pending_acceptance', nullable=False) 
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    agreement = db.relationship('LoanAgreement', backref='originating_loan_offer', uselist=False, cascade="all, delete-orphan")
+
+class LoanAgreement(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    loan_request_id = db.Column(db.Integer, db.ForeignKey('loan_request.id'), nullable=True) 
+    loan_offer_id = db.Column(db.Integer, db.ForeignKey('loan_offer.id'), nullable=True, unique=True) 
+    lender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    borrower_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    principal_amount = db.Column(db.Float, nullable=False)
+    interest_rate = db.Column(db.Float, nullable=False)
+    total_repayable_amount = db.Column(db.Float, nullable=False)
+    repayment_schedule = db.Column(JSON, nullable=True) 
+    status = db.Column(db.String(50), default='active', nullable=False) 
+    agreement_date = db.Column(db.Date, nullable=False, default=lambda: datetime.now(timezone.utc).date())
+    next_payment_due_date = db.Column(db.Date, nullable=True)
+    final_repayment_date = db.Column(db.Date, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+class LendableProduct(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    category = db.Column(db.String(100), nullable=True)
+    lending_terms = db.Column(db.Text, nullable=True) 
+    image_urls = db.Column(JSON, nullable=True)
+    availability_status = db.Column(db.String(50), default='available', nullable=False) 
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    product_loan_agreements = db.relationship('ProductLoanAgreement', backref='lendable_product_item', lazy='dynamic', cascade="all, delete-orphan")
+
+class ProductLoanAgreement(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    lendable_product_id = db.Column(db.Integer, db.ForeignKey('lendable_product.id'), nullable=False)
+    borrower_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False) 
+    request_date = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    approval_date = db.Column(db.DateTime, nullable=True)
+    loan_start_date = db.Column(db.Date, nullable=True)
+    loan_end_date = db.Column(db.Date, nullable=True)
+    status = db.Column(db.String(50), default='pending_approval', nullable=False) 
+    agreed_terms = db.Column(db.Text, nullable=True)
+    borrower_receipt_confirmed_at = db.Column(db.DateTime, nullable=True)
+    owner_return_confirmed_at = db.Column(db.DateTime, nullable=True)
+
+class WithdrawalRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    status = db.Column(db.String(50), default='pending', nullable=False) 
+    request_date = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    processed_date = db.Column(db.DateTime, nullable=True)
+    payment_details = db.Column(JSON, nullable=True) 
+    admin_notes = db.Column(db.Text, nullable=True)
+
+class TeamMembership(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False) 
+    helper_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False) 
+    permissions = db.Column(JSON, nullable=True) 
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    __table_args__ = (db.UniqueConstraint('admin_id', 'helper_id', name='_admin_helper_uc'),)
+
+# --- CORS Preflight Response ---
+def _build_cors_preflight_response():
+    response = make_response()
+    response.headers.add("Access-Control-Allow-Origin", os.environ.get("FRONTEND_URL", "https://nova7.vercel.app"))
+    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+    response.headers.add("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+    response.headers.add("Access-Control-Allow-Credentials", "true")
+    return response
+
+# --- Context processor for creating tables and upload folders ---
+@app.before_request 
+def initial_setup():
+    if not hasattr(app, 'tables_created_this_instance'):
+        db_path = os.path.join(VERCEL_TMP_DIR, 'nova7_vercel_prod.db') 
+        if not os.path.exists(db_path) or os.environ.get('VERCEL'):
+            try:
+                with app.app_context(): 
+                    db.create_all()
+                print(f"Database tables checked/created at {db_path}.")
+                if os.environ.get('VERCEL') and not ResourceCategory.query.first(): 
+                    seed_initial_data()
+            except Exception as e:
+                print(f"Error during initial table creation: {e}")
+        app.tables_created_this_instance = True 
+        ensure_upload_folders_exist() 
+
+def seed_initial_data():
+    with app.app_context():
+        try:
+            if not ResourceCategory.query.first():
+                print("Seeding initial resource categories...")
+                default_categories = [
+                    ResourceCategory(slug="budgeting", name="Budgeting & Planning", icon="fas fa-calculator", description="Learn to manage your money effectively."),
+                    ResourceCategory(slug="growth", name="Business Growth & Funding", icon="fas fa-chart-line", description="Strategies to scale your business."),
+                    ResourceCategory(slug="app-help", name="nova7 App Help", icon="fas fa-question-circle", description="Tutorials and FAQs for using nova7.")
+                ]
+                db.session.add_all(default_categories)
+                db.session.commit() 
+
+            if not Article.query.first():
+                print("Seeding initial articles...")
+                budget_cat = ResourceCategory.query.filter_by(slug="budgeting").first()
+                growth_cat = ResourceCategory.query.filter_by(slug="growth").first()
+                app_help_cat = ResourceCategory.query.filter_by(slug="app-help").first()
+                articles_to_add = []
+                if budget_cat: articles_to_add.extend([Article(slug="budgeting-basics", title="Creating Your First Business Budget", category_id=budget_cat.id, excerpt="Learn the fundamentals...", content_html="<p>This is detailed content for creating your first business budget...</p><h2>Why Budget?</h2><p>A budget helps you control spending and plan for the future.</p>", read_time_minutes=5, is_published=True), Article(slug="cash-flow-101", title="Understanding Cash Flow", category_id=budget_cat.id, excerpt="Master your cash flow for business success.", content_html="<p>Detailed content about cash flow management, inflows, and outflows.</p>", read_time_minutes=7, is_published=True)])
+                if growth_cat: articles_to_add.append(Article(slug="funding-options", title="Exploring Funding Options for SMEs", category_id=growth_cat.id, excerpt="Discover how to fund your venture in Africa.", content_html="<p>Content on various funding sources like venture capital, angel investors, and grants relevant to African SMEs.</p>", read_time_minutes=10, is_published=True))
+                if app_help_cat: articles_to_add.append(Article(slug="nova7-quickstart", title="nova7 Quickstart Guide", category_id=app_help_cat.id, excerpt="Get started with nova7 quickly and easily.", content_html="<p>Your step-by-step guide to using all of nova7's features effectively.</p>", read_time_minutes=4, is_published=True))
+                if articles_to_add: db.session.add_all(articles_to_add); db.session.commit()
+            print("Initial data seeding check complete.")
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error seeding initial data: {e}")
+
+def ensure_upload_folders_exist():
+    for folder_key in ['PROFILE_UPLOAD_FOLDER', 'MARKETPLACE_UPLOAD_FOLDER', 'COMMUNITY_UPLOAD_FOLDER']:
+        folder_path = app.config[folder_key]
+        try:
+            os.makedirs(folder_path, exist_ok=True)
+            print(f"Created or verified upload folder: {folder_path}")
+        except OSError as e:
+            print(f"Warning: Could not create upload folder {folder_path}: {e}")
+
+# --- API Endpoints ---
+@app.route('/')
+def hello_world(): return 'Hello, nova7 Vercel Backend is Running!'
+
+@app.route('/api/test')
+def api_test(): return jsonify({'message': 'This is a test API endpoint from nova7 backend!'}) 
+
+@app.route('/api/send-test-email')
+def send_test_email():
+    try:
+        msg = Message("Test Email from nova7", recipients=["moraliemihigo12@gmail.com", "sapiensndat01@gmail.com"], body="Test email from nova7!")
+        mail.send(msg)
+        return jsonify({'status': 'success', 'message': 'Test email sent!'}), 200
+    except Exception as e: return jsonify({'status': 'error', 'message': f'Failed: {str(e)}'}), 500
+
+# --- Authentication Endpoints ---
+@app.route('/api/register', methods=['POST', 'OPTIONS'])
+def register_user():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    data = request.get_json()
+    if not data: return jsonify({'status': 'error', 'message': 'No input data provided'}), 400
+    full_name = data.get('fullName')
+    email = data.get('email')
+    password = data.get('password')
+    if not full_name or not email or not password: return jsonify({'status': 'error', 'message': 'Missing required fields'}), 400
+    if User.query.filter_by(email=email).first(): return jsonify({'status': 'error', 'message': 'Email address already registered'}), 409
+    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+    new_user = User(full_name=full_name, email=email, password_hash=hashed_password, company_name=data.get('companyName'), role=data.get('role'))
+    try:
+        db.session.add(new_user)
+        db.session.commit()
+        user_settings = UserSetting(user_id=new_user.id) 
+        db.session.add(user_settings)
+        db.session.commit()
+        try: 
+            verification_token = str(uuid.uuid4())
+            new_user.email_verification_token = verification_token
+            new_user.email_verification_token_expires = datetime.now(timezone.utc) + timedelta(hours=24)
+            db.session.commit()
+            frontend_base_url = os.environ.get("FRONTEND_URL", "http://127.0.0.1:5500")
+            verification_url = f"{frontend_base_url}/verify-email.html?token={verification_token}" 
+            msg_body = f"Hi {new_user.full_name},\n\nWelcome to nova7! Please verify your email by clicking the link below:\n{verification_url}\n\nThis link is valid for 24 hours.\n\nBest regards,\nThe nova7 Team"
+            msg = Message(subject="Welcome to nova7! Please Verify Your Email", recipients=[new_user.email], body=msg_body)
+            mail.send(msg)
+        except Exception as email_error: print(f"Error sending welcome/verification email: {str(email_error)}")
+        return jsonify({'status': 'success', 'message': 'User registered successfully! Please check your email to verify your account.'}), 201 
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error registering user: {str(e)}")
+        return jsonify({'status': 'error', 'message': 'Registration failed due to a server error.'}), 500
+
+@app.route('/api/login', methods=['POST', 'OPTIONS'])
+def login_user():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    data = request.get_json()
+    if not data: return jsonify({"status": "error", "message": "No input data provided"}), 400
+    email = data.get('email')
+    password = data.get('password')
+    if not email or not password: return jsonify({"status": "error", "message": "Email and password are required"}), 400
+    user = User.query.filter_by(email=email).first()
+    if user and check_password_hash(user.password_hash, password):
+        access_token = create_access_token(identity=user.id) 
+        user_data = {"id": user.id, "fullName": user.full_name, "email": user.email, "companyName": user.company_name, "role": user.role, "profilePictureUrl": user.profile_picture_url, "isEmailVerified": user.is_email_verified, "memberSince": user.created_at.strftime('%Y-%m-%d')}
+        return jsonify({"status": "success", "message": "Login successful!", "access_token": access_token, "user": user_data }), 200
+    else: return jsonify({"status": "error", "message": "Invalid email or password"}), 401 
+
+@app.route('/api/logout', methods=['POST', 'OPTIONS']) 
+@jwt_required()
+def logout_user():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    return jsonify({"status": "success", "message": "Logout successful. Please clear token on client-side."}), 200
+
+@app.route('/api/profile', methods=['GET', 'OPTIONS'])
+@jwt_required() 
+def get_user_profile():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity() 
+    user = User.query.get(current_user_id)
+    if not user: return jsonify({"status": "error", "message": "User not found"}), 404
+    user_data = {"id": user.id, "fullName": user.full_name, "email": user.email, "companyName": user.company_name, "role": user.role, "profilePictureUrl": user.profile_picture_url, "isEmailVerified": user.is_email_verified, "memberSince": user.created_at.strftime('%Y-%m-%d')}
+    return jsonify({"status": "success", "user": user_data}), 200
+
+@app.route('/api/profile/update', methods=['PUT', 'OPTIONS'])
+@jwt_required()
+def update_user_profile():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    if not user: return jsonify({"status": "error", "message": "User not found"}), 404
+    data = request.get_json()
+    if not data: return jsonify({"status": "error", "message": "No data provided for update"}), 400
+    if 'fullName' in data and data['fullName'].strip(): user.full_name = data['fullName'].strip()
+    if 'companyName' in data: user.company_name = data['companyName'].strip() if data['companyName'] else None
+    if 'role' in data: user.role = data['role'].strip() if data['role'] else None
+    if 'profilePictureUrl' in data:
+        if isinstance(data['profilePictureUrl'], str):
+            user.profile_picture_url = data['profilePictureUrl'].strip() if data['profilePictureUrl'] else None
+        elif data['profilePictureUrl'] is None: user.profile_picture_url = None
+    try:
+        db.session.commit()
+        updated_user_data = {"id": user.id, "fullName": user.full_name, "email": user.email, "companyName": user.company_name, "role": user.role, "profilePictureUrl": user.profile_picture_url, "isEmailVerified": user.is_email_verified, "memberSince": user.created_at.strftime('%Y-%m-%d')}
+        return jsonify({"status": "success", "message": "Profile updated successfully", "user": updated_user_data}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error updating profile: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to update profile due to a server error."}), 500
+
+@app.route('/api/profile/change-password', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def change_password():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    if not user: return jsonify({"status": "error", "message": "User not found"}), 404
+    data = request.get_json()
+    if not data: return jsonify({"status": "error", "message": "No data provided"}), 400
+    current_password = data.get('currentPassword')
+    new_password = data.get('newPassword')
+    if not current_password or not new_password: return jsonify({"status": "error", "message": "Current and new passwords are required"}), 400
+    if not check_password_hash(user.password_hash, current_password): return jsonify({"status": "error", "message": "Incorrect current password"}), 401
+    if len(new_password) < 8: return jsonify({"status": "error", "message": "New password must be at least 8 characters long"}), 400
+    user.password_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+    try:
+        db.session.commit()
+        return jsonify({"status": "success", "message": "Password changed successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error changing password: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to change password due to server error"}), 500
+
+@app.route('/api/email/request-verification', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def request_email_verification():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    if not user: return jsonify({"status": "error", "message": "User not found"}), 404
+    if user.is_email_verified: return jsonify({"status": "info", "message": "Email is already verified"}), 200
+    try:
+        verification_token = str(uuid.uuid4()) 
+        user.email_verification_token = verification_token
+        user.email_verification_token_expires = datetime.now(timezone.utc) + timedelta(hours=24) 
+        db.session.commit()
+        frontend_base_url = os.environ.get("FRONTEND_URL", "http://127.0.0.1:5500")
+        verification_url = f"{frontend_base_url}/verify-email.html?token={verification_token}" 
+        msg_body = f"Hi {user.full_name},\n\nPlease verify your email address for nova7 by clicking the link below:\n{verification_url}\n\nThis link is valid for 24 hours.\n\nThanks,\nThe nova7 Team"
+        msg = Message(subject="Verify Your Email Address - nova7", recipients=[user.email], body=msg_body)
+        mail.send(msg)
+        return jsonify({"status": "success", "message": "Verification email sent. Please check your inbox."}), 200
+    except Exception as e:
+        print(f"Error sending verification email: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to send verification email."}), 500
+
+@app.route('/api/email/verify/<token>', methods=['GET', 'OPTIONS'])
+def verify_email(token):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    if not token: return jsonify({"status": "error", "message": "Verification token is missing."}), 400
+    user = User.query.filter_by(email_verification_token=token).first()
+    if not user: return jsonify({"status": "error", "message": "Invalid or expired verification token."}), 400 
+    if user.email_verification_token_expires.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        user.email_verification_token = None 
+        user.email_verification_token_expires = None
+        db.session.commit()
+        return jsonify({"status": "error", "message": "Verification token has expired. Please request a new one."}), 400
+    user.is_email_verified = True
+    user.email_verification_token = None 
+    user.email_verification_token_expires = None
+    try:
+        db.session.commit()
+        return jsonify({"status": "success", "message": "Email verified successfully! You can now log in."}), 200 
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error verifying email: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to verify email due to server error."}), 500
+
+# --- Transaction Endpoints ---
+@app.route('/api/transactions/add', methods=['POST', 'OPTIONS'])
+@jwt_required() 
+def add_transaction():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    data = request.get_json()
+    if not data: return jsonify({"status": "error", "message": "No input data provided"}), 400
+    transaction_type = data.get('transactionType')
+    amount_str = data.get('amount')
+    category = data.get('category')
+    date_str = data.get('date') 
+    description = data.get('description')
+    if not all([transaction_type, amount_str, category, date_str]): return jsonify({"status": "error", "message": "Missing required fields"}), 400
+    try:
+        amount = float(amount_str)
+        if amount <= 0: return jsonify({"status": "error", "message": "Amount must be positive"}), 400
+        transaction_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError: return jsonify({"status": "error", "message": "Invalid amount or date format"}), 400
+    if transaction_type not in ['income', 'expense']: return jsonify({"status": "error", "message": "Invalid transaction type"}), 400
+    new_transaction = Transaction(user_id=current_user_id, type=transaction_type, amount=amount, category=category, date=transaction_date, description=description)
+    try:
+        db.session.add(new_transaction)
+        db.session.commit()
+        return jsonify({"status": "success", "message": f"{transaction_type.capitalize()} added successfully!", "transaction": new_transaction.to_dict()}), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error adding transaction: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to add transaction due to a server error."}), 500
+
+@app.route('/api/transactions', methods=['GET', 'OPTIONS'])
+@jwt_required()
+def get_transactions():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    args = request.args
+    start_date_str = args.get('start_date')
+    end_date_str = args.get('end_date')
+    transaction_type_filter = args.get('type')
+    category_filter = args.get('category')
+    description_search = args.get('description_search') 
+    query = Transaction.query.filter_by(user_id=current_user_id)
+    try:
+        if start_date_str:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            query = query.filter(Transaction.date >= start_date)
+        if end_date_str:
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            query = query.filter(Transaction.date <= end_date)
+    except ValueError: return jsonify({"status": "error", "message": "Invalid date format. Please use YYYY-MM-DD."}), 400
+    if transaction_type_filter: query = query.filter(Transaction.type == transaction_type_filter)
+    if category_filter: query = query.filter(Transaction.category == category_filter)
+    if description_search: query = query.filter(Transaction.description.ilike(f'%{description_search}%'))
+    user_transactions = query.order_by(Transaction.date.desc()).all()
+    transactions_list = [transaction.to_dict() for transaction in user_transactions]
+    return jsonify({"status": "success", "transactions": transactions_list}), 200
+
+@app.route('/api/transactions/<int:transaction_id>', methods=['GET', 'PUT', 'OPTIONS', 'DELETE']) 
+@jwt_required()
+def manage_transaction(transaction_id): 
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    transaction = Transaction.query.filter_by(id=transaction_id, user_id=current_user_id).first() 
+    if not transaction: return jsonify({"status": "error", "message": "Transaction not found or unauthorized"}), 404
+    if request.method == 'GET':
+        return jsonify({"status": "success", "transaction": transaction.to_dict()}), 200
+    elif request.method == 'PUT':
+        data = request.get_json()
+        if not data: return jsonify({"status": "error", "message": "No input data provided"}), 400
+        if 'transactionType' in data:
+            if data['transactionType'] not in ['income', 'expense']: return jsonify({"status": "error", "message": "Invalid transaction type"}), 400
+            transaction.type = data['transactionType']
+        if 'amount' in data:
+            try:
+                amount = float(data['amount'])
+                if amount <= 0: return jsonify({"status": "error", "message": "Amount must be positive"}), 400
+                transaction.amount = amount
+            except ValueError: return jsonify({"status": "error", "message": "Invalid amount format"}), 400
+        if 'category' in data: transaction.category = data['category']
+        if 'date' in data:
+            try: transaction.date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+            except ValueError: return jsonify({"status": "error", "message": "Invalid date format"}), 400
+        if 'description' in data: transaction.description = data.get('description', transaction.description)
+        try:
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Transaction updated successfully!", "transaction": transaction.to_dict()}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error updating transaction: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to update transaction due to a server error."}), 500
+    elif request.method == 'DELETE':
+        try:
+            db.session.delete(transaction)
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Transaction deleted successfully!"}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error deleting transaction: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to delete transaction due to a server error."}), 500
+
+@app.route('/api/transactions/download', methods=['GET', 'OPTIONS'])
+@jwt_required()
+def download_transactions():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    user_transactions = Transaction.query.filter_by(user_id=current_user_id).order_by(Transaction.date.asc()).all()
+    si = StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['Date', 'Type', 'Category', 'Description', 'Amount']) 
+    for tx in user_transactions:
+        cw.writerow([tx.date.strftime('%Y-%m-%d'), tx.type, tx.category, tx.description or '', tx.amount])
+    output = make_response(si.getvalue())
+    output.headers["Content-Disposition"] = "attachment; filename=transactions.csv"
+    output.headers["Content-type"] = "text/csv"
+    return output
+
+# --- Dashboard & Report Endpoints ---
+@app.route('/api/dashboard/summary', methods=['GET', 'OPTIONS'])
+@jwt_required()
+def get_dashboard_summary():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    total_income = db.session.query(func.sum(Transaction.amount)).filter_by(user_id=current_user_id, type='income').scalar() or 0.0
+    total_expenses = db.session.query(func.sum(Transaction.amount)).filter_by(user_id=current_user_id, type='expense').scalar() or 0.0
+    net_balance = total_income - total_expenses
+    profit_margin = ((total_income - total_expenses) / total_income * 100) if total_income > 0 else 0.0
+    overdue_invoices_amount = 0.0 
+    overdue_invoices_count = 0
+    summary_data = {"totalIncome": round(total_income, 2), "totalExpenses": round(total_expenses, 2), "netBalance": round(net_balance, 2), "profitMargin": round(profit_margin, 2), "overdueInvoicesAmount": round(overdue_invoices_amount, 2), "overdueInvoicesCount": overdue_invoices_count}
+    return jsonify({"status": "success", "summary": summary_data}), 200
+
+@app.route('/api/password/forgot', methods=['POST', 'OPTIONS'])
+def forgot_password():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    data = request.get_json()
+    if not data or not data.get('email'): return jsonify({"status": "error", "message": "Email is required"}), 400
+    email = data.get('email')
+    user = User.query.filter_by(email=email).first()
+    if user:
+        try:
+            reset_token = create_access_token(identity=user.id, expires_delta=timedelta(minutes=15), additional_claims={"type": "password_reset"})
+            frontend_base_url = os.environ.get("FRONTEND_URL", "http://127.0.0.1:5500")
+            reset_url = f"{frontend_base_url}/reset-password.html?token={reset_token}" 
+            msg = Message(subject="Password Reset Request for nova7", recipients=[user.email], body=f"Hi {user.full_name},\n\nPlease click the link below to reset your password...\n{reset_url}\n\n...")
+            mail.send(msg)
+        except Exception as e:
+            print(f"Error sending password reset email: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to send password reset email."}), 500
+    return jsonify({"status": "success", "message": "If an account with that email exists, a password reset link has been sent."}), 200
+
+@app.route('/api/password/reset', methods=['POST', 'OPTIONS'])
+def reset_password():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    data = request.get_json()
+    if not data: return jsonify({"status": "error", "message": "No data provided"}), 400
+    token = data.get('token')
+    new_password = data.get('newPassword')
+    if not token or not new_password: return jsonify({"status": "error", "message": "Token and new password are required"}), 400
+    if len(new_password) < 8: return jsonify({"status": "error", "message": "Password must be at least 8 characters long"}), 400
+    try:
+        decoded_token = decode_token(token) 
+        if decoded_token.get("type") != "password_reset": return jsonify({"status": "error", "message": "Invalid token type"}), 401
+        user_id = decoded_token['sub'] 
+        user = User.query.get(user_id)
+        if not user: return jsonify({"status": "error", "message": "User not found or token invalid"}), 404
+        user.password_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+        db.session.commit()
+        return jsonify({"status": "success", "message": "Password has been reset successfully. Please log in."}), 200
+    except ExpiredSignatureError: return jsonify({"status": "error", "message": "Password reset token has expired."}), 401
+    except InvalidTokenError: return jsonify({"status": "error", "message": "Invalid password reset token."}), 401
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error resetting password: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to reset password due to a server error."}), 500
+
+@app.route('/api/reports/income-expense', methods=['GET', 'OPTIONS'])
+@jwt_required()
+def income_expense_report():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    start_date_str = request.args.get('start_date') 
+    end_date_str = request.args.get('end_date')     
+    query_income = db.session.query(func.sum(Transaction.amount)).filter_by(user_id=current_user_id, type='income')
+    query_expenses = db.session.query(func.sum(Transaction.amount)).filter_by(user_id=current_user_id, type='expense')
+    try:
+        if start_date_str:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            query_income = query_income.filter(Transaction.date >= start_date)
+            query_expenses = query_expenses.filter(Transaction.date >= start_date)
+        if end_date_str:
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            query_income = query_income.filter(Transaction.date <= end_date)
+            query_expenses = query_expenses.filter(Transaction.date <= end_date)
+    except ValueError: return jsonify({"status": "error", "message": "Invalid date format. Please use YYYY-MM-DD."}), 400
+    total_income = query_income.scalar() or 0.0
+    total_expenses = query_expenses.scalar() or 0.0
+    net_profit_loss = total_income - total_expenses
+    report_data = {"totalIncome": round(total_income, 2), "totalExpenses": round(total_expenses, 2), "netProfitLoss": round(net_profit_loss, 2), "period": {"start_date": start_date_str if start_date_str else "All Time", "end_date": end_date_str if end_date_str else "All Time"}}
+    return jsonify({"status": "success", "report": report_data}), 200
+
+@app.route('/api/reports/category-spending', methods=['GET', 'OPTIONS'])
+@jwt_required()
+def category_spending_report():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+    query = db.session.query(Transaction.category, func.sum(Transaction.amount).label('total_spent')).filter_by(user_id=current_user_id, type='expense')
+    try:
+        if start_date_str:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            query = query.filter(Transaction.date >= start_date)
+        if end_date_str:
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            query = query.filter(Transaction.date <= end_date)
+    except ValueError: return jsonify({"status": "error", "message": "Invalid date format. Please use YYYY-MM-DD."}), 400
+    category_spending = query.group_by(Transaction.category).order_by(func.sum(Transaction.amount).desc()).all()
+    report_data = [{"category": category, "total_spent": round(total, 2)} for category, total in category_spending]
+    return jsonify({"status": "success", "report": report_data, "period": {"start_date": start_date_str if start_date_str else "All Time", "end_date": end_date_str if end_date_str else "All Time"}}), 200
+
+# --- Marketplace Endpoints ---
+@app.route('/api/marketplace/list-item', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def list_marketplace_item():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    data = request.get_json()
+    if not data: return jsonify({"status": "error", "message": "No input data provided"}), 400
+    title = data.get('itemTitle')
+    description = data.get('itemDescription')
+    category = data.get('itemCategory')
+    price_str = data.get('itemPrice')
+    condition = data.get('itemCondition')
+    image_urls = data.get('imageUrls') 
+    location = data.get('itemLocation')
+    is_service = data.get('isService', False) 
+    quantity_str = data.get('quantity')
+    if not all([title, description, category, price_str]): return jsonify({"status": "error", "message": "Missing required fields: title, description, category, or price"}), 400
+    try:
+        price = float(price_str)
+        if price < 0: return jsonify({"status": "error", "message": "Price cannot be negative"}), 400
+    except ValueError: return jsonify({"status": "error", "message": "Invalid price format"}), 400
+    quantity = None
+    if not is_service and quantity_str is not None and quantity_str != '':
+        try:
+            quantity = int(quantity_str)
+            if quantity < 0: return jsonify({"status": "error", "message": "Quantity cannot be negative"}), 400
+        except ValueError: return jsonify({"status": "error", "message": "Invalid quantity format"}), 400
+    elif is_service: quantity = None
+    new_item = MarketplaceItem(user_id=current_user_id, title=title, description=description, category=category, price=price, condition=condition if condition else None, image_urls=image_urls if isinstance(image_urls, list) else [], location=location, status='active', is_service=bool(is_service), quantity=quantity)
+    try:
+        db.session.add(new_item)
+        db.session.commit()
+        return jsonify({"status": "success", "message": "Item listed successfully!", "item": new_item.to_dict() }), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error listing marketplace item: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to list item due to a server error."}), 500
+
+@app.route('/api/marketplace/items', methods=['GET', 'OPTIONS'])
+def get_marketplace_items():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 12, type=int) 
+    search_term = request.args.get('search')
+    category_filter = request.args.get('category')
+    sort_by = request.args.get('sort', 'newest') 
+    query = MarketplaceItem.query.filter_by(status='active') 
+    if search_term:
+        query = query.filter(or_(MarketplaceItem.title.ilike(f'%{search_term}%'), MarketplaceItem.description.ilike(f'%{search_term}%')))
+    if category_filter:
+        query = query.filter_by(category=category_filter)
+    if sort_by == 'price_low_high': query = query.order_by(MarketplaceItem.price.asc())
+    elif sort_by == 'price_high_low': query = query.order_by(MarketplaceItem.price.desc())
+    else: query = query.order_by(MarketplaceItem.created_at.desc())
+    paginated_items = query.paginate(page=page, per_page=per_page, error_out=False)
+    items_list = [item.to_dict() for item in paginated_items.items]
+    return jsonify({"status": "success", "items": items_list, "total_items": paginated_items.total, "total_pages": paginated_items.pages, "current_page": paginated_items.page, "has_next": paginated_items.has_next, "has_prev": paginated_items.has_prev}), 200
+
+@app.route('/api/marketplace/items/<int:item_id>', methods=['GET', 'OPTIONS', 'PUT', 'DELETE'])
+def manage_marketplace_item(item_id): 
+    if request.method == 'OPTIONS':
+        return _build_cors_preflight_response()
+    item = MarketplaceItem.query.get(item_id) 
+    if not item:
+        return jsonify({"status": "error", "message": "Item not found"}), 404
+    if request.method == 'GET':
+        return jsonify({"status": "success", "item": item.to_dict()}), 200
+    @jwt_required()
+    def protected_item_management():
+        current_user_id = get_jwt_identity()
+        protected_item = MarketplaceItem.query.get_or_404(item_id) 
+        if protected_item.user_id != current_user_id:
+            return jsonify({"status": "error", "message": "Unauthorized action on this item"}), 403
+        if request.method == 'PUT':
+            data = request.get_json()
+            if not data:
+                return jsonify({"status": "error", "message": "No input data provided"}), 400
+            if 'itemTitle' in data: protected_item.title = data['itemTitle']
+            if 'itemDescription' in data: protected_item.description = data['itemDescription']
+            if 'itemCategory' in data: protected_item.category = data['itemCategory']
+            if 'itemPrice' in data:
+                try:
+                    price = float(data['itemPrice'])
+                    if price < 0: return jsonify({"status": "error", "message": "Price cannot be negative"}), 400
+                    protected_item.price = price
+                except ValueError: return jsonify({"status": "error", "message": "Invalid price format"}), 400
+            if 'itemCondition' in data: protected_item.condition = data.get('itemCondition')
+            if 'imageUrls' in data: protected_item.image_urls = data.get('imageUrls') if isinstance(data.get('imageUrls'), list) else []
+            if 'itemLocation' in data: protected_item.location = data.get('itemLocation')
+            if 'status' in data and data['status'] in ['active', 'inactive', 'sold']: 
+                protected_item.status = data['status']
+            if 'isService' in data: protected_item.is_service = bool(data['isService'])
+            if 'quantity' in data: 
+                if data['quantity'] is None:
+                    protected_item.quantity = None
+                elif not protected_item.is_service:
+                    try:
+                        quantity = int(data['quantity'])
+                        if quantity < 0: return jsonify({"status": "error", "message": "Quantity cannot be negative"}), 400
+                        protected_item.quantity = quantity
+                    except (ValueError, TypeError): return jsonify({"status": "error", "message": "Invalid quantity format"}), 400
+            elif protected_item.is_service: protected_item.quantity = None 
+            try:
+                db.session.commit()
+                return jsonify({"status": "success", "message": "Item updated successfully!", "item": protected_item.to_dict()}), 200
+            except Exception as e:
+                db.session.rollback()
+                print(f"Error updating marketplace item: {str(e)}")
+                return jsonify({"status": "error", "message": "Failed to update item due to a server error."}), 500
+        elif request.method == 'DELETE':
+            try:
+                db.session.delete(protected_item)
+                db.session.commit()
+                return jsonify({"status": "success", "message": "Item deleted successfully!"}), 200
+            except Exception as e:
+                db.session.rollback()
+                print(f"Error deleting marketplace item: {str(e)}")
+                return jsonify({"status": "error", "message": "Failed to delete item due to a server error."}), 500
+        return jsonify({"status":"error", "message":"Method not allowed for this sub-function"}), 405
+    if request.method in ['PUT', 'DELETE']:
+        return protected_item_management()
+    return jsonify({"status":"error", "message":"Method not handled correctly for this route"}), 405
+
+@app.route('/api/marketplace/items/<int:item_id>/adjust-stock', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def adjust_stock(item_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    item = MarketplaceItem.query.get_or_404(item_id)
+    if item.user_id != current_user_id: return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    if item.is_service: return jsonify({"status": "error", "message": "Stock adjustment not applicable for services"}), 400
+    data = request.get_json()
+    if not data or 'quantityChange' not in data: return jsonify({"status": "error", "message": "Quantity change is required"}), 400
+    try: quantity_change = int(data.get('quantityChange'))
+    except ValueError: return jsonify({"status": "error", "message": "Invalid quantity change format"}), 400
+    if item.quantity is None: item.quantity = 0 
+    item.quantity += quantity_change
+    if item.quantity < 0: item.quantity = 0 
+    try:
+        db.session.commit()
+        return jsonify({"status": "success", "message": "Stock updated", "item": item.to_dict()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": "Failed to update stock"}), 500
+
+@app.route('/api/marketplace/items/<int:item_id>/buy', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def buy_item(item_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    item = MarketplaceItem.query.get_or_404(item_id)
+    if item.status != 'active': return jsonify({"status": "error", "message": "Item not available"}), 400
+    if item.user_id == current_user_id: return jsonify({"status": "error", "message": "Cannot buy your own item"}), 400
+    data = request.get_json()
+    quantity_to_buy = data.get('quantity', 1) if not item.is_service else 1
+    if not item.is_service:
+        if item.quantity is None or item.quantity < quantity_to_buy:
+            return jsonify({"status": "error", "message": "Not enough stock"}), 400
+    
+    if not stripe.api_key:
+        return jsonify({"status": "error", "message": "Payment processing is not available at this moment."}), 503
+
+    try:
+        payment_intent = stripe.PaymentIntent.create(
+            amount=int(item.price * quantity_to_buy * 100), 
+            currency='usd', 
+            automatic_payment_methods={"enabled": True},
+            metadata={'item_id': item.id, 'user_id': current_user_id, 'quantity': quantity_to_buy}
+        )
+    except Exception as e:
+        print(f"Stripe error: {e}")
+        return jsonify({"status": "error", "message": "Failed to initiate payment."}), 500
+
+    new_order = Order(item_id=item.id, buyer_id=current_user_id, seller_id=item.user_id, quantity_bought=quantity_to_buy, total_price=item.price * quantity_to_buy, order_status='pending_payment', stripe_payment_intent_id=payment_intent.id)
+    try:
+        db.session.add(new_order)
+        db.session.commit()
+        return jsonify({"status": "success", "message": "Payment intent created. Please confirm payment on the frontend.", "clientSecret": payment_intent.client_secret, "orderId": new_order.id, "paymentIntentId": payment_intent.id}), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error creating order record: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to create order record."}), 500
+
+@app.route("/api/stripe/webhook", methods=["POST"])
+def stripe_webhook():
+    payload = request.data
+    sig_header = request.headers.get("Stripe-Signature")
+    endpoint_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
+    if not endpoint_secret: return jsonify({"status": "error", "message": "Stripe webhook secret not configured"}), 500
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
+    except ValueError as e: return jsonify({"status": "error", "message": f"Invalid payload: {e}"}), 400
+    except stripe.error.SignatureVerificationError as e: return jsonify({"status": "error", "message": f"Invalid signature: {e}"}), 400
+    if event["type"] == "payment_intent.succeeded":
+        payment_intent = event["data"]["object"]
+        order = Order.query.filter_by(stripe_payment_intent_id=payment_intent["id"]).first()
+        if order:
+            order.order_status = "paid"
+            item = MarketplaceItem.query.get(order.item_id)
+            item_title = item.title if item else "Unknown Item"
+            if item and not item.is_service and item.quantity is not None:
+                item.quantity -= order.quantity_bought
+                if item.quantity <= 0:
+                    item.quantity = 0
+                    item.status = "sold"
+            try:
+                db.session.commit()
+                msg = Message(
+                    subject="Order Confirmation - nova7",
+                    recipients=[order.buyer.email],
+                    body=f"Hi {order.buyer.full_name},\n\nYour order (ID: {order.id}) for {item_title} has been successfully paid. You will be notified once it ships.\n\nThank you,\nThe nova7 Team"
+                )
+                mail.send(msg)
+                print(f"Order {order.id} status updated to paid, stock adjusted.")
+            except Exception as e:
+                db.session.rollback()
+                print(f"Error updating order/stock after webhook: {e}")
+                return jsonify({"status": "error", "message": "Failed to process payment success"}), 500
+        else:
+            print(f"Webhook received for unknown PaymentIntent: {payment_intent['id']}")
+    elif event["type"] == "payment_intent.payment_failed":
+        payment_intent = event["data"]["object"]
+        order = Order.query.filter_by(stripe_payment_intent_id=payment_intent["id"]).first()
+        if order:
+            order.order_status = "payment_failed"
+            item = MarketplaceItem.query.get(order.item_id)
+            item_title = item.title if item else "Unknown Item"
+            try:
+                db.session.commit()
+                msg = Message(
+                    subject="Order Payment Failed - nova7",
+                    recipients=[order.buyer.email],
+                    body=f"Hi {order.buyer.full_name},\n\nYour payment for order (ID: {order.id}) for {item_title} failed. Please try again or contact support.\n\nThank you,\nThe nova7 Team"
+                )
+                mail.send(msg)
+                print(f"Order {order.id} status updated to payment_failed.")
+            except Exception as e:
+                db.session.rollback()
+                print(f"Error updating order status after failed payment webhook: {e}")
+                return jsonify({"status": "error", "message": "Failed to process payment failure"}), 500
+    else:
+        print(f"Unhandled event type {event['type']}")
+    return jsonify({"received": True}), 200
+
+@app.route("/api/marketplace/orders/<int:order_id>/initiate-transfer", methods=["POST", "OPTIONS"])
+@jwt_required()
+def initiate_product_transfer(order_id):
+    if request.method == "OPTIONS": return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    order = Order.query.get_or_404(order_id)
+    if order.seller_id != current_user_id: return jsonify({"status": "error", "message": "Unauthorized: Only the seller can initiate transfer"}), 403
+    if order.order_status != "paid": return jsonify({"status": "error", "message": "Order must be paid before initiating transfer"}), 400
+    data = request.get_json()
+    tracking_info = data.get("trackingInfo")
+    if not tracking_info: return jsonify({"status": "error", "message": "Tracking information is required"}), 400
+    if order.transfer:
+       order.transfer.tracking_info = tracking_info
+        order.transfer.shipped_at = datetime.now(timezone.utc)
+    else:
+        new_transfer = ProductTransfer(
+            order_id=order.id,
+            status="shipped",
+            tracking_info=tracking_info,
+            initiated_at=datetime.now(timezone.utc),
+            shipped_at=datetime.now(timezone.utc)
+        )
+        db.session.add(new_transfer)
+    try:
+        db.session.commit()
+        msg = Message(
+            subject="Order Shipped - nova7",
+            recipients=[order.buyer.email],
+            body=f"Hi {order.buyer.full_name},\n\nYour order (ID: {order.id}) for {order.item.title} has been shipped. Tracking info: {tracking_info}.\n\nPlease confirm receipt once you receive the item.\n\nThank you,\nThe nova7 Team"
+        )
+        mail.send(msg)
+        return jsonify({"status": "success", "message": "Transfer initiated successfully", "transfer": {"order_id": order.id, "status": "shipped", "tracking_info": tracking_info}}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error initiating transfer: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to initiate transfer due to server error"}), 500
+
+@app.route("/api/marketplace/transfers/<int:transfer_id>/confirm-receipt", methods=["POST", "OPTIONS"])
+@jwt_required()
+def confirm_product_receipt(transfer_id):
+    if request.method == "OPTIONS": return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    transfer = ProductTransfer.query.get_or_404(transfer_id)
+    order = transfer.order
+    if order.buyer_id != current_user_id: return jsonify({"status": "error", "message": "Unauthorized: Only the buyer can confirm receipt"}), 403
+    if transfer.status != "shipped": return jsonify({"status": "error", "message": "Transfer must be in shipped status to confirm receipt"}), 400
+    transfer.status = "delivered"
+    transfer.receipt_confirmed_at = datetime.now(timezone.utc)
+    order.order_status = "completed"
+    try:
+        db.session.commit()
+        msg = Message(
+            subject="Order Delivery Confirmed - nova7",
+            recipients=[order.seller.email],
+            body=f"Hi {order.seller.full_name},\n\nThe buyer has confirmed receipt for order (ID: {order.id}) for {order.item.title}. The order is now completed.\n\nThank you,\nThe nova7 Team"
+        )
+        mail.send(msg)
+        return jsonify({"status": "success", "message": "Receipt confirmed successfully", "transfer": {"order_id": order.id, "status": transfer.status, "receipt_confirmed_at": transfer.receipt_confirmed_at.strftime("%Y-%m-%d %H:%M:%S")}}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error confirming receipt: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to confirm receipt due to server error"}), 500
+
+# --- Community Post API Endpoints ---
+@app.route('/api/community/posts', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def create_community_post():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    data = request.get_json()
+    if not data or not data.get('content'): return jsonify({"status": "error", "message": "Post content is required"}), 400
+    content = data.get('content')
+    image_url = data.get('imageUrl') 
+    new_post = CommunityPost(user_id=current_user_id, content=content, image_url=image_url)
+    try:
+        db.session.add(new_post)
+        db.session.commit()
+        return jsonify({"status": "success", "message": "Post created successfully!", "post": new_post.to_dict(current_user_id=current_user_id)}), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error creating community post: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to create post due to a server error."}), 500
+
+@app.route('/api/community/posts', methods=['GET', 'OPTIONS'])
+@jwt_required() 
+def get_community_posts():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity() 
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int) 
+    paginated_posts = CommunityPost.query.order_by(CommunityPost.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    posts_list = [post.to_dict(current_user_id=current_user_id) for post in paginated_posts.items] 
+    return jsonify({"status": "success", "posts": posts_list, "total_posts": paginated_posts.total, "total_pages": paginated_posts.pages, "current_page": paginated_posts.page, "has_next": paginated_posts.has_next, "has_prev": paginated_posts.has_prev }), 200
+
+@app.route('/api/community/posts/<int:post_id>', methods=['GET', 'PUT', 'DELETE', 'OPTIONS'])
+@jwt_required() 
+def manage_community_post(post_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    post = CommunityPost.query.get_or_404(post_id) 
+    current_user_id = get_jwt_identity() 
+    if request.method == 'GET':
+        return jsonify({"status": "success", "post": post.to_dict(current_user_id=current_user_id)}), 200
+    if post.user_id != current_user_id:
+        return jsonify({"status": "error", "message": "Unauthorized to modify this post"}), 403
+    if request.method == 'PUT':
+        data = request.get_json()
+        if not data or not data.get('content'): return jsonify({"status": "error", "message": "Content is required for update"}), 400
+        post.content = data.get('content')
+        if 'imageUrl' in data: post.image_url = data.get('imageUrl') 
+        try:
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Post updated successfully!", "post": post.to_dict(current_user_id=current_user_id)}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error updating post {post_id}: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to update post due to server error."}), 500
+    elif request.method == 'DELETE':
+        try:
+            db.session.delete(post)
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Post deleted successfully!"}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error deleting post {post_id}: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to delete post due to server error."}), 500
+    return jsonify({"status":"error", "message":"Method not allowed"}), 405
+
+@app.route('/api/community/posts/<int:post_id>/like', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def toggle_like_post(post_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    post = CommunityPost.query.get(post_id)
+    if not post: return jsonify({"status": "error", "message": "Post not found"}), 404
+    existing_like = Like.query.filter_by(user_id=current_user_id, post_id=post_id).first()
+    try:
+        if existing_like:
+            db.session.delete(existing_like)
+            db.session.commit()
+            action_message = "Post unliked successfully."
+            liked = False
+        else:
+            new_like = Like(user_id=current_user_id, post_id=post_id)
+            db.session.add(new_like)
+            db.session.commit()
+            action_message = "Post liked successfully."
+            liked = True
+        return jsonify({"status": "success", "message": action_message, "likes_count": post.likes.count(), "is_liked_by_current_user": liked }), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error toggling like on post {post_id}: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to update like status due to a server error."}), 500
+
+@app.route('/api/community/posts/<int:post_id>/comments', methods=['POST', 'OPTIONS', 'GET']) 
+@jwt_required() 
+def manage_post_comments(post_id): 
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    post = CommunityPost.query.get_or_404(post_id) 
+    if request.method == 'POST':
+        current_user_id = get_jwt_identity()
+        data = request.get_json()
+        if not data or not data.get('content'): return jsonify({"status": "error", "message": "Comment content is required"}), 400
+        content = data.get('content')
+        new_comment = Comment(content=content, user_id=current_user_id, post_id=post_id)
+        try:
+            db.session.add(new_comment)
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Comment added successfully!", "comment": new_comment.to_dict()}), 201
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error adding comment to post {post_id}: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to add comment due to a server error."}), 500
+    elif request.method == 'GET':
+        comments = Comment.query.filter_by(post_id=post_id).order_by(Comment.created_at.asc()).all()
+        comments_list = [comment.to_dict() for comment in comments]
+        return jsonify({"status": "success", "comments": comments_list}), 200
+
+@app.route('/api/community/comments/<int:comment_id>', methods=['PUT', 'DELETE', 'OPTIONS'])
+@jwt_required()
+def manage_comment(comment_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    comment = Comment.query.get_or_404(comment_id)
+    if comment.user_id != current_user_id:
+        return jsonify({"status": "error", "message": "Unauthorized to modify this comment"}), 403
+    if request.method == 'PUT':
+        data = request.get_json()
+        if not data or not data.get('content'):
+            return jsonify({"status": "error", "message": "Content is required for update"}), 400
+        comment.content = data.get('content')
+        try:
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Comment updated successfully", "comment": comment.to_dict()}), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"status": "error", "message": "Failed to update comment"}), 500
+    elif request.method == 'DELETE':
+        try:
+            db.session.delete(comment)
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Comment deleted successfully"}), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"status": "error", "message": "Failed to delete comment"}), 500
+    return jsonify({"status": "error", "message": "Method not allowed"}), 405
+
+# --- Chat Advisor Endpoint (Placeholder) ---
+@app.route('/api/chat/send', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def chat_send_message():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity() 
+    data = request.get_json()
+    if not data or not data.get('message'):
+        return jsonify({"status": "error", "message": "Message content is required"}), 400
+    user_message = data.get('message')
+    bot_response = f"Received: '{user_message}'. AI response logic to be implemented."
+    if "budget" in user_message.lower():
+        bot_response = "To create a budget, start by listing all income sources and then categorize your expenses (fixed vs. variable). Would you like some common categories?"
+    elif "save" in user_message.lower():
+        bot_response = "For savings, a good rule of thumb is the 50/30/20 rule: 50% for needs, 30% for wants, and 20% for savings. Does that sound like a good starting point?"
+    return jsonify({"status": "success", "reply": bot_response}), 200
+
+# --- User Settings Endpoints ---
+@app.route('/api/settings', methods=['GET', 'PUT', 'OPTIONS'])
+@jwt_required()
+def user_settings_route(): 
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    settings = UserSetting.query.filter_by(user_id=current_user_id).first()
+    if not settings: 
+        settings = UserSetting(user_id=current_user_id)
+        db.session.add(settings)
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error creating default settings for user {current_user_id}: {str(e)}")
+            return jsonify({"status": "error", "message": "Could not retrieve or create settings."}), 500
+    if request.method == 'GET':
+        return jsonify({"status": "success", "settings": settings.to_dict()}), 200
+    elif request.method == 'PUT':
+        data = request.get_json()
+        if not data: return jsonify({"status": "error", "message": "No data provided for update"}), 400
+        if 'language' in data: settings.language = data['language']
+        if 'email_notifications_enabled' in data: settings.email_notifications_enabled = bool(data['email_notifications_enabled'])
+        if 'theme' in data: settings.theme = data['theme']
+        try:
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Settings updated successfully", "settings": settings.to_dict()}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error updating settings: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to update settings due to server error"}), 500
+
+# --- Educational Resources Endpoints ---
+@app.route('/api/resources/categories', methods=['GET', 'OPTIONS'])
+def get_resource_categories():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    try:
+        categories = ResourceCategory.query.order_by(ResourceCategory.name).all()
+        if not categories and not os.environ.get('VERCEL'): 
+            seed_initial_data() 
+            categories = ResourceCategory.query.order_by(ResourceCategory.name).all()
+        return jsonify({"status": "success", "categories": [cat.to_dict() for cat in categories]}), 200
+    except Exception as e:
+        print(f"Error fetching resource categories: {str(e)}")
+        return jsonify({"status":"error", "message":"Could not fetch categories"}), 500
+
+@app.route('/api/resources/articles', methods=['GET', 'OPTIONS'])
+def get_resource_articles(): 
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    category_slug = request.args.get('category')
+    search_term = request.args.get('search') 
+    query = Article.query.filter_by(is_published=True)
+    if category_slug:
+        category = ResourceCategory.query.filter_by(slug=category_slug).first()
+        if category: query = query.filter_by(category_id=category.id)
+        else: return jsonify({"status": "success", "articles": []}), 200 
+    if search_term: query = query.filter(or_(Article.title.ilike(f'%{search_term}%'), Article.excerpt.ilike(f'%{search_term}%'), Article.content_html.ilike(f'%{search_term}%')))
+    articles = query.order_by(Article.published_at.desc()).all()
+    return jsonify({"status": "success", "articles": [article.to_dict() for article in articles]}), 200
+
+@app.route('/api/resources/articles/<string:article_slug>', methods=['GET', 'OPTIONS'])
+def get_resource_article_detail(article_slug):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    article = Article.query.filter_by(slug=article_slug, is_published=True).first()
+    if article: return jsonify({"status": "success", "article": article.to_dict(include_content=True)}), 200
+    return jsonify({"status": "error", "message": "Article not found"}), 404
+
+# --- GCS KYC Document Upload ---
+def allowed_kyc_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in {"png", "jpg", "jpeg", "pdf"}
+
+@app.route("/api/upload/kyc-document", methods=["POST", "OPTIONS"])
+@jwt_required()
+def upload_kyc_document():
+    if request.method == "OPTIONS": return _build_cors_preflight_response()
+    if not bucket: return jsonify({"status": "error", "message": "GCS Bucket not configured."}), 500
+    if "file" not in request.files: return jsonify({"status": "error", "message": "No file part"}), 400
+    file = request.files["file"]
+    if file.filename == "": return jsonify({"status": "error", "message": "No selected file"}), 400
+    if file and allowed_kyc_file(file.filename):
+        original_filename = secure_filename(file.filename)
+        unique_filename = str(uuid.uuid4()) + "_" + original_filename
+        gcs_path = f"kyc_documents/{unique_filename}"
+        try:
+            blob = bucket.blob(gcs_path)
+            blob.upload_from_string(file.read(), content_type=file.content_type)
+            blob.make_public()
+            public_url = blob.public_url
+            return jsonify({"status": "success", "message": "Document uploaded to GCS successfully", "documentUrl": public_url}), 201
+        except Exception as e:
+            print(f"Error uploading to GCS: {str(e)}")
+            return jsonify({"status": "error", "message": f"Failed to upload document to GCS: {str(e)}"}), 500
+    return jsonify({"status": "error", "message": "File type not allowed"}), 400
+
+# --- GCS Image Upload ---
+def allowed_file(filename):    
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/api/upload/image', methods=['POST', 'OPTIONS']) 
+@jwt_required()
+def upload_image():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    if not bucket: return jsonify({"status": "error", "message": "GCS Bucket not configured."}), 500
+    if 'file' not in request.files: return jsonify({"status": "error", "message": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '': return jsonify({"status": "error", "message": "No selected file"}), 400
+    if file and allowed_file(file.filename):
+        original_filename = secure_filename(file.filename)
+        unique_filename = str(uuid.uuid4()) + "_" + original_filename
+        context = request.args.get('context', 'general_uploads') 
+        gcs_path = f"{context}/{unique_filename}"
+        try:
+            blob = bucket.blob(gcs_path)
+            blob.upload_from_string(file.read(), content_type=file.content_type)
+            blob.make_public()
+            public_url = blob.public_url
+            return jsonify({"status": "success", "message": "Image uploaded to GCS successfully", "imageUrl": public_url}), 201
+        except Exception as e:
+            print(f"Error uploading to GCS: {str(e)}")
+            return jsonify({"status": "error", "message": f"Failed to upload image to GCS: {str(e)}"}), 500
+    return jsonify({"status": "error", "message": "File type not allowed"}), 400
+
+# --- Marketplace Buyer-Seller Contact Placeholder ---
+@app.route('/api/marketplace/items/<int:item_id>/contact-seller', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def contact_seller_for_item(item_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    item = MarketplaceItem.query.get_or_404(item_id)
+    data = request.get_json()
+    if not data or not data.get('message'):
+        return jsonify({"status": "error", "message": "Message content is required"}), 400
+    message_content = data.get('message')
+    buyer = User.query.get(current_user_id)
+    seller = item.seller
+    if not seller: return jsonify({"status": "error", "message": "Seller not found for this item"}), 404
+    if seller.id == current_user_id: return jsonify({"status": "error", "message": "You cannot message yourself"}), 400
+    try:
+        msg = Message(subject=f"New Inquiry about your item '{item.title}' on nova7", recipients=[seller.email], body=f"Hi {seller.full_name},\n\n{buyer.full_name} ({buyer.email}) is interested in your item: '{item.title}'.\n\nTheir message:\n{message_content}\n\nPlease log in to nova7 to respond or contact them directly.\n\nThanks,\nThe nova7 Team")
+        mail.send(msg)
+        return jsonify({"status": "success", "message": "Your message has been sent to the seller."}), 200
+    except Exception as e:
+        print(f"Error sending message to seller: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to send message to seller."}), 500
+
+# --- New Feature API Stubs (Lending, Withdrawals, Team Management) ---
+# Money Lending
+@app.route('/api/lending/money/requests', methods=['POST', 'GET', 'OPTIONS'])
+@jwt_required()
+def manage_loan_requests():
+    if request.method == "OPTIONS": return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    if request.method == "POST":
+        data = request.get_json()
+        if not data or not data.get("amount_requested") or not data.get("reason_summary"):
+            return jsonify({"status": "error", "message": "Amount and reason summary are required"}), 400
+        try:
+            amount = float(data.get("amount_requested"))
+            if amount <= 0: return jsonify({"status": "error", "message": "Amount must be positive"}), 400
+            if amount > 100000: return jsonify({"status": "error", "message": "Amount cannot exceed $100,000"}), 400
+        except ValueError: return jsonify({"status": "error", "message": "Invalid amount format"}), 400
+        reason_summary = data.get("reason_summary").strip()
+        if len(reason_summary) > 255: return jsonify({"status": "error", "message": "Reason summary must be 255 characters or less"}), 400
+        detailed_proposal = data.get("detailed_proposal", "").strip() or None
+        preferred_interest_rate = data.get("preferred_interest_rate")
+        if preferred_interest_rate is not None:
+            try:
+                preferred_interest_rate = float(preferred_interest_rate)
+                if preferred_interest_rate < 0 or preferred_interest_rate > 50:
+                    return jsonify({"status": "error", "message": "Interest rate must be between 0% and 50%"}), 400
+            except ValueError: return jsonify({"status": "error", "message": "Invalid interest rate format"}), 400
+        preferred_repayment_terms = data.get("preferred_repayment_terms", "").strip() or None
+        target_lender_id = data.get("target_lender_id")
+        if target_lender_id:
+            try:
+                target_lender_id = int(target_lender_id)
+                if not User.query.get(target_lender_id):
+                    return jsonify({"status": "error", "message": "Target lender not found"}), 404
+            except ValueError: return jsonify({"status": "error", "message": "Invalid target lender ID"}), 400
+        is_public_request = data.get("is_public_request", True)
+        new_request = LoanRequest(
+            requester_id=current_user_id,
+            amount_requested=amount,
+            reason_summary=reason_summary,
+            detailed_proposal=detailed_proposal,
+            preferred_interest_rate=preferred_interest_rate,
+            preferred_repayment_terms=preferred_repayment_terms,
+            target_lender_id=target_lender_id,
+            is_public_request=is_public_request,
+            status="pending_offers"
+        )
+        try:
+            db.session.add(new_request)
+            db.session.commit()
+            msg = Message(
+                subject="New Loan Request - nova7",
+                recipients=[new_request.requester.email],
+                body=f"Hi {new_request.requester.full_name},\n\nYour loan request for ${amount:.2f} has been submitted. You will be notified when offers are made.\n\nThank you,\nThe nova7 Team"
+            )
+            mail.send(msg)
+            return jsonify({"status": "success", "message": "Loan request submitted", "request_id": new_request.id}), 201
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error creating loan request: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to create loan request due to server error"}), 500
+    elif request.method == "GET":
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 10, type=int)
+        query = LoanRequest.query.filter(
+            LoanRequest.status == "pending_offers",
+            or_(LoanRequest.is_public_request == True, LoanRequest.target_lender_id == current_user_id, LoanRequest.requester_id == current_user_id)
+        ).order_by(LoanRequest.created_at.desc())
+        paginated_requests = query.paginate(page=page, per_page=per_page, error_out=False)
+        requests_list = [{
+            "id": r.id,
+            "requester_name": r.requester.full_name,
+            "amount_requested": r.amount_requested,
+            "reason_summary": r.reason_summary,
+            "preferred_interest_rate": r.preferred_interest_rate,
+            "is_public_request": r.is_public_request,
+            "created_at": r.created_at.strftime("%Y-%m-%d")
+        } for r in paginated_requests.items]
+        return jsonify({
+            "status": "success",
+            "loan_requests": requests_list,
+            "total_pages": paginated_requests.pages,
+            "current_page": paginated_requests.page,
+            "has_next": paginated_requests.has_next,
+            "has_prev": paginated_requests.has_prev
+        }), 200
+
+@app.route('/api/lending/money/my-requests', methods=['GET', 'OPTIONS'])
+@jwt_required()
+def get_my_loan_requests():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 10, type=int)
+    query = LoanRequest.query.filter_by(requester_id=current_user_id).order_by(LoanRequest.created_at.desc())
+    paginated_requests = query.paginate(page=page, per_page=per_page, error_out=False)
+    requests_list = [{
+        "id": r.id,
+        "amount_requested": r.amount_requested,
+        "reason_summary": r.reason_summary,
+        "preferred_interest_rate": r.preferred_interest_rate,
+        "is_public_request": r.is_public_request,
+        "status": r.status,
+        "created_at": r.created_at.strftime("%Y-%m-%d")
+    } for r in paginated_requests.items]
+    return jsonify({
+        "status": "success",
+        "loan_requests": requests_list,
+        "total_pages": paginated_requests.pages,
+        "current_page": paginated_requests.page,
+        "has_next": paginated_requests.has_next,
+        "has_prev": paginated_requests.has_prev
+    }), 200
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5005)        order.transfer.tracking_info = tracking_info
+        order.transfer.shipped_at = datetime.now(timezone.utc)
+    else:
+        new_transfer = ProductTransfer(
+            order_id=order.id,
+            status="shipped",
+            tracking_info=tracking_info,
+            initiated_at=datetime.now(timezone.utc),
+            shipped_at=datetime.now(timezone.utc)
+        )
+        db.session.add(new_transfer)
+    try:
+        db.session.commit()
+        msg = Message(
+            subject="Order Shipped - nova7",
+            recipients=[order.buyer.email],
+            body=f"Hi {order.buyer.full_name},\n\nYour order (ID: {order.id}) for {order.item.title} has been shipped. Tracking info: {tracking_info}.\n\nPlease confirm receipt once you receive the item.\n\nThank you,\nThe nova7 Team"
+        )
+        mail.send(msg)
+        return jsonify({"status": "success", "message": "Transfer initiated successfully", "transfer": {"order_id": order.id, "status": "shipped", "tracking_info": tracking_info}}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error initiating transfer: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to initiate transfer due to server error"}), 500
+
+@app.route("/api/marketplace/transfers/<int:transfer_id>/confirm-receipt", methods=["POST", "OPTIONS"])
+@jwt_required()
+def confirm_product_receipt(transfer_id):
+    if request.method == "OPTIONS": return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    transfer = ProductTransfer.query.get_or_404(transfer_id)
+    order = transfer.order
+    if order.buyer_id != current_user_id: return jsonify({"status": "error", "message": "Unauthorized: Only the buyer can confirm receipt"}), 403
+    if transfer.status != "shipped": return jsonify({"status": "error", "message": "Transfer must be in shipped status to confirm receipt"}), 400
+    transfer.status = "delivered"
+    transfer.receipt_confirmed_at = datetime.now(timezone.utc)
+    order.order_status = "completed"
+    try:
+        db.session.commit()
+        msg = Message(
+            subject="Order Delivery Confirmed - nova7",
+            recipients=[order.seller.email],
+            body=f"Hi {order.seller.full_name},\n\nThe buyer has confirmed receipt for order (ID: {order.id}) for {order.item.title}. The order is now completed.\n\nThank you,\nThe nova7 Team"
+        )
+        mail.send(msg)
+        return jsonify({"status": "success", "message": "Receipt confirmed successfully", "transfer": {"order_id": order.id, "status": transfer.status, "receipt_confirmed_at": transfer.receipt_confirmed_at.strftime("%Y-%m-%d %H:%M:%S")}}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error confirming receipt: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to confirm receipt due to server error"}), 500
+
+# --- Community Post API Endpoints ---
+@app.route('/api/community/posts', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def create_community_post():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    data = request.get_json()
+    if not data or not data.get('content'): return jsonify({"status": "error", "message": "Post content is required"}), 400
+    content = data.get('content')
+    image_url = data.get('imageUrl') 
+    new_post = CommunityPost(user_id=current_user_id, content=content, image_url=image_url)
+    try:
+        db.session.add(new_post)
+        db.session.commit()
+        return jsonify({"status": "success", "message": "Post created successfully!", "post": new_post.to_dict(current_user_id=current_user_id)}), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error creating community post: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to create post due to a server error."}), 500
+
+@app.route('/api/community/posts', methods=['GET', 'OPTIONS'])
+@jwt_required() 
+def get_community_posts():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity() 
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int) 
+    paginated_posts = CommunityPost.query.order_by(CommunityPost.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    posts_list = [post.to_dict(current_user_id=current_user_id) for post in paginated_posts.items] 
+    return jsonify({"status": "success", "posts": posts_list, "total_posts": paginated_posts.total, "total_pages": paginated_posts.pages, "current_page": paginated_posts.page, "has_next": paginated_posts.has_next, "has_prev": paginated_posts.has_prev }), 200
+
+@app.route('/api/community/posts/<int:post_id>', methods=['GET', 'PUT', 'DELETE', 'OPTIONS'])
+@jwt_required() 
+def manage_community_post(post_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    post = CommunityPost.query.get_or_404(post_id) 
+    current_user_id = get_jwt_identity() 
+    if request.method == 'GET':
+        return jsonify({"status": "success", "post": post.to_dict(current_user_id=current_user_id)}), 200
+    if post.user_id != current_user_id:
+        return jsonify({"status": "error", "message": "Unauthorized to modify this post"}), 403
+    if request.method == 'PUT':
+        data = request.get_json()
+        if not data or not data.get('content'): return jsonify({"status": "error", "message": "Content is required for update"}), 400
+        post.content = data.get('content')
+        if 'imageUrl' in data: post.image_url = data.get('imageUrl') 
+        try:
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Post updated successfully!", "post": post.to_dict(current_user_id=current_user_id)}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error updating post {post_id}: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to update post due to server error."}), 500
+    elif request.method == 'DELETE':
+        try:
+            db.session.delete(post)
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Post deleted successfully!"}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error deleting post {post_id}: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to delete post due to server error."}), 500
+    return jsonify({"status":"error", "message":"Method not allowed"}), 405
+
+@app.route('/api/community/posts/<int:post_id>/like', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def toggle_like_post(post_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    post = CommunityPost.query.get(post_id)
+    if not post: return jsonify({"status": "error", "message": "Post not found"}), 404
+    existing_like = Like.query.filter_by(user_id=current_user_id, post_id=post_id).first()
+    try:
+        if existing_like:
+            db.session.delete(existing_like)
+            db.session.commit()
+            action_message = "Post unliked successfully."
+            liked = False
+        else:
+            new_like = Like(user_id=current_user_id, post_id=post_id)
+            db.session.add(new_like)
+            db.session.commit()
+            action_message = "Post liked successfully."
+            liked = True
+        return jsonify({"status": "success", "message": action_message, "likes_count": post.likes.count(), "is_liked_by_current_user": liked }), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error toggling like on post {post_id}: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to update like status due to a server error."}), 500
+
+@app.route('/api/community/posts/<int:post_id>/comments', methods=['POST', 'OPTIONS', 'GET']) 
+@jwt_required() 
+def manage_post_comments(post_id): 
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    post = CommunityPost.query.get_or_404(post_id) 
+    if request.method == 'POST':
+        current_user_id = get_jwt_identity()
+        data = request.get_json()
+        if not data or not data.get('content'): return jsonify({"status": "error", "message": "Comment content is required"}), 400
+        content = data.get('content')
+        new_comment = Comment(content=content, user_id=current_user_id, post_id=post_id)
+        try:
+            db.session.add(new_comment)
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Comment added successfully!", "comment": new_comment.to_dict()}), 201
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error adding comment to post {post_id}: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to add comment due to a server error."}), 500
+    elif request.method == 'GET':
+        comments = Comment.query.filter_by(post_id=post_id).order_by(Comment.created_at.asc()).all()
+        comments_list = [comment.to_dict() for comment in comments]
+        return jsonify({"status": "success", "comments": comments_list}), 200
+
+@app.route('/api/community/comments/<int:comment_id>', methods=['PUT', 'DELETE', 'OPTIONS'])
+@jwt_required()
+def manage_comment(comment_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    comment = Comment.query.get_or_404(comment_id)
+    if comment.user_id != current_user_id:
+        return jsonify({"status": "error", "message": "Unauthorized to modify this comment"}), 403
+    if request.method == 'PUT':
+        data = request.get_json()
+        if not data or not data.get('content'):
+            return jsonify({"status": "error", "message": "Content is required for update"}), 400
+        comment.content = data.get('content')
+        try:
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Comment updated successfully", "comment": comment.to_dict()}), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"status": "error", "message": "Failed to update comment"}), 500
+    elif request.method == 'DELETE':
+        try:
+            db.session.delete(comment)
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Comment deleted successfully"}), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"status": "error", "message": "Failed to delete comment"}), 500
+    return jsonify({"status": "error", "message": "Method not allowed"}), 405
+
+# --- Chat Advisor Endpoint (Placeholder) ---
+@app.route('/api/chat/send', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def chat_send_message():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity() 
+    data = request.get_json()
+    if not data or not data.get('message'):
+        return jsonify({"status": "error", "message": "Message content is required"}), 400
+    user_message = data.get('message')
+    bot_response = f"Received: '{user_message}'. AI response logic to be implemented."
+    if "budget" in user_message.lower():
+        bot_response = "To create a budget, start by listing all income sources and then categorize your expenses (fixed vs. variable). Would you like some common categories?"
+    elif "save" in user_message.lower():
+        bot_response = "For savings, a good rule of thumb is the 50/30/20 rule: 50% for needs, 30% for wants, and 20% for savings. Does that sound like a good starting point?"
+    return jsonify({"status": "success", "reply": bot_response}), 200
+
+# --- User Settings Endpoints ---
+@app.route('/api/settings', methods=['GET', 'PUT', 'OPTIONS'])
+@jwt_required()
+def user_settings_route(): 
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    settings = UserSetting.query.filter_by(user_id=current_user_id).first()
+    if not settings: 
+        settings = UserSetting(user_id=current_user_id)
+        db.session.add(settings)
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error creating default settings for user {current_user_id}: {str(e)}")
+            return jsonify({"status": "error", "message": "Could not retrieve or create settings."}), 500
+    if request.method == 'GET':
+        return jsonify({"status": "success", "settings": settings.to_dict()}), 200
+    elif request.method == 'PUT':
+        data = request.get_json()
+        if not data: return jsonify({"status": "error", "message": "No data provided for update"}), 400
+        if 'language' in data: settings.language = data['language']
+        if 'email_notifications_enabled' in data: settings.email_notifications_enabled = bool(data['email_notifications_enabled'])
+        if 'theme' in data: settings.theme = data['theme']
+        try:
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Settings updated successfully", "settings": settings.to_dict()}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error updating settings: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to update settings due to server error"}), 500
+
+# --- Educational Resources Endpoints ---
+@app.route('/api/resources/categories', methods=['GET', 'OPTIONS'])
+def get_resource_categories():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    try:
+        categories = ResourceCategory.query.order_by(ResourceCategory.name).all()
+        if not categories and not os.environ.get('VERCEL'): 
+            seed_initial_data() 
+            categories = ResourceCategory.query.order_by(ResourceCategory.name).all()
+        return jsonify({"status": "success", "categories": [cat.to_dict() for cat in categories]}), 200
+    except Exception as e:
+        print(f"Error fetching resource categories: {str(e)}")
+        return jsonify({"status":"error", "message":"Could not fetch categories"}), 500
+
+@app.route('/api/resources/articles', methods=['GET', 'OPTIONS'])
+def get_resource_articles(): 
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    category_slug = request.args.get('category')
+    search_term = request.args.get('search') 
+    query = Article.query.filter_by(is_published=True)
+    if category_slug:
+        category = ResourceCategory.query.filter_by(slug=category_slug).first()
+        if category: query = query.filter_by(category_id=category.id)
+        else: return jsonify({"status": "success", "articles": []}), 200 
+    if search_term: query = query.filter(or_(Article.title.ilike(f'%{search_term}%'), Article.excerpt.ilike(f'%{search_term}%'), Article.content_html.ilike(f'%{search_term}%')))
+    articles = query.order_by(Article.published_at.desc()).all()
+    return jsonify({"status": "success", "articles": [article.to_dict() for article in articles]}), 200
+
+@app.route('/api/resources/articles/<string:article_slug>', methods=['GET', 'OPTIONS'])
+def get_resource_article_detail(article_slug):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    article = Article.query.filter_by(slug=article_slug, is_published=True).first()
+    if article: return jsonify({"status": "success", "article": article.to_dict(include_content=True)}), 200
+    return jsonify({"status": "error", "message": "Article not found"}), 404
+
+# --- GCS KYC Document Upload ---
+def allowed_kyc_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in {"png", "jpg", "jpeg", "pdf"}
+
+@app.route("/api/upload/kyc-document", methods=["POST", "OPTIONS"])
+@jwt_required()
+def upload_kyc_document():
+    if request.method == "OPTIONS": return _build_cors_preflight_response()
+    if not bucket: return jsonify({"status": "error", "message": "GCS Bucket not configured."}), 500
+    if "file" not in request.files: return jsonify({"status": "error", "message": "No file part"}), 400
+    file = request.files["file"]
+    if file.filename == "": return jsonify({"status": "error", "message": "No selected file"}), 400
+    if file and allowed_kyc_file(file.filename):
+        original_filename = secure_filename(file.filename)
+        unique_filename = str(uuid.uuid4()) + "_" + original_filename
+        gcs_path = f"kyc_documents/{unique_filename}"
+        try:
+            blob = bucket.blob(gcs_path)
+            blob.upload_from_string(file.read(), content_type=file.content_type)
+            blob.make_public()
+            public_url = blob.public_url
+            return jsonify({"status": "success", "message": "Document uploaded to GCS successfully", "documentUrl": public_url}), 201
+        except Exception as e:
+            print(f"Error uploading to GCS: {str(e)}")
+            return jsonify({"status": "error", "message": f"Failed to upload document to GCS: {str(e)}"}), 500
+    return jsonify({"status": "error", "message": "File type not allowed"}), 400
+
+# --- GCS Image Upload ---
+def allowed_file(filename):    
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/api/upload/image', methods=['POST', 'OPTIONS']) 
+@jwt_required()
+def upload_image():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    if not bucket: return jsonify({"status": "error", "message": "GCS Bucket not configured."}), 500
+    if 'file' not in request.files: return jsonify({"status": "error", "message": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '': return jsonify({"status": "error", "message": "No selected file"}), 400
+    if file and allowed_file(file.filename):
+        original_filename = secure_filename(file.filename)
+        unique_filename = str(uuid.uuid4()) + "_" + original_filename
+        context = request.args.get('context', 'general_uploads') 
+        gcs_path = f"{context}/{unique_filename}"
+        try:
+            blob = bucket.blob(gcs_path)
+            blob.upload_from_string(file.read(), content_type=file.content_type)
+            blob.make_public()
+            public_url = blob.public_url
+            return jsonify({"status": "success", "message": "Image uploaded to GCS successfully", "imageUrl": public_url}), 201
+        except Exception as e:
+            print(f"Error uploading to GCS: {str(e)}")
+            return jsonify({"status": "error", "message": f"Failed to upload image to GCS: {str(e)}"}), 500
+    return jsonify({"status": "error", "message": "File type not allowed"}), 400
+
+# --- Marketplace Buyer-Seller Contact Placeholder ---
+@app.route('/api/marketplace/items/<int:item_id>/contact-seller', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def contact_seller_for_item(item_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    item = MarketplaceItem.query.get_or_404(item_id)
+    data = request.get_json()
+    if not data or not data.get('message'):
+        return jsonify({"status": "error", "message": "Message content is required"}), 400
+    message_content = data.get('message')
+    buyer = User.query.get(current_user_id)
+    seller = item.seller
+    if not seller: return jsonify({"status": "error", "message": "Seller not found for this item"}), 404
+    if seller.id == current_user_id: return jsonify({"status": "error", "message": "You cannot message yourself"}), 400
+    try:
+        msg = Message(subject=f"New Inquiry about your item '{item.title}' on nova7", recipients=[seller.email], body=f"Hi {seller.full_name},\n\n{buyer.full_name} ({buyer.email}) is interested in your item: '{item.title}'.\n\nTheir message:\n{message_content}\n\nPlease log in to nova7 to respond or contact them directly.\n\nThanks,\nThe nova7 Team")
+        mail.send(msg)
+        return jsonify({"status": "success", "message": "Your message has been sent to the seller."}), 200
+    except Exception as e:
+        print(f"Error sending message to seller: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to send message to seller."}), 500
+
+# --- New Feature API Stubs (Lending, Withdrawals, Team Management) ---
+# Money Lending
+@app.route('/api/lending/money/requests', methods=['POST', 'GET', 'OPTIONS'])
+@jwt_required()
+def manage_loan_requests():
+    if request.method == "OPTIONS": return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    if request.method == "POST":
+        data = request.get_json()
+        if not data or not data.get("amount_requested") or not data.get("reason_summary"):
+            return jsonify({"status": "error", "message": "Amount and reason summary are required"}), 400
+        try:
+            amount = float(data.get("amount_requested"))
+            if amount <= 0: return jsonify({"status": "error", "message": "Amount must be positive"}), 400
+            if amount > 100000: return jsonify({"status": "error", "message": "Amount cannot exceed $100,000"}), 400
+        except ValueError: return jsonify({"status": "error", "message": "Invalid amount format"}), 400
+        reason_summary = data.get("reason_summary").strip()
+        if len(reason_summary) > 255: return jsonify({"status": "error", "message": "Reason summary must be 255 characters or less"}), 400
+        detailed_proposal = data.get("detailed_proposal", "").strip() or None
+        preferred_interest_rate = data.get("preferred_interest_rate")
+        if preferred_interest_rate is not None:
+            try:
+                preferred_interest_rate = float(preferred_interest_rate)
+                if preferred_interest_rate < 0 or preferred_interest_rate > 50:
+                    return jsonify({"status": "error", "message": "Interest rate must be between 0% and 50%"}), 400
+            except ValueError: return jsonify({"status": "error", "message": "Invalid interest rate format"}), 400
+        preferred_repayment_terms = data.get("preferred_repayment_terms", "").strip() or None
+        target_lender_id = data.get("target_lender_id")
+        if target_lender_id:
+            try:
+                target_lender_id = int(target_lender_id)
+                if not User.query.get(target_lender_id):
+                    return jsonify({"status": "error", "message": "Target lender not found"}), 404
+            except ValueError: return jsonify({"status": "error", "message": "Invalid target lender ID"}), 400
+        is_public_request = data.get("is_public_request", True)
+        new_request = LoanRequest(
+            requester_id=current_user_id,
+            amount_requested=amount,
+            reason_summary=reason_summary,
+            detailed_proposal=detailed_proposal,
+            preferred_interest_rate=preferred_interest_rate,
+            preferred_repayment_terms=preferred_repayment_terms,
+            target_lender_id=target_lender_id,
+            is_public_request=is_public_request,
+            status="pending_offers"
+        )
+        try:
+            db.session.add(new_request)
+            db.session.commit()
+            msg = Message(
+                subject="New Loan Request - nova7",
+                recipients=[new_request.requester.email],
+                body=f"Hi {new_request.requester.full_name},\n\nYour loan request for ${amount:.2f} has been submitted. You will be notified when offers are made.\n\nThank you,\nThe nova7 Team"
+            )
+            mail.send(msg)
+            return jsonify({"status": "success", "message": "Loan request submitted", "request_id": new_request.id}), 201
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error creating loan request: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to create loan request due to server error"}), 500
+    elif request.method == "GET":
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 10, type=int)
+        query = LoanRequest.query.filter(
+            LoanRequest.status == "pending_offers",
+            or_(LoanRequest.is_public_request == True, LoanRequest.target_lender_id == current_user_id, LoanRequest.requester_id == current_user_id)
+        ).order_by(LoanRequest.created_at.desc())
+        paginated_requests = query.paginate(page=page, per_page=per_page, error_out=False)
+        requests_list = [{
+            "id": r.id,
+            "requester_name": r.requester.full_name,
+            "amount_requested": r.amount_requested,
+            "reason_summary": r.reason_summary,
+            "preferred_interest_rate": r.preferred_interest_rate,
+            "is_public_request": r.is_public_request,
+            "created_at": r.created_at.strftime("%Y-%m-%d")
+        } for r in paginated_requests.items]
+        return jsonify({
+            "status": "success",
+            "loan_requests": requests_list,
+            "total_pages": paginated_requests.pages,
+            "current_page": paginated_requests.page,
+            "has_next": paginated_requests.has_next,
+            "has_prev": paginated_requests.has_prev
+        }), 200
+
+@app.route('/api/lending/money/my-requests', methods=['GET', 'OPTIONS'])
+@jwt_required()
+def get_my_loan_requests():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 10, type=int)
+    query = LoanRequest.query.filter_by(requester_id=current_user_id).order_by(LoanRequest.created_at.desc())
+    paginated_requests = query.paginate(page=page, per_page=per_page, error_out=False)
+    requests_list = [{
+        "id": r.id,
+        "amount_requested": r.amount_requested,
+        "reason_summary": r.reason_summary,
+        "preferred_interest_rate": r.preferred_interest_rate,
+        "is_public_request": r.is_public_request,
+        "status": r.status,
+        "created_at": r.created_at.strftime("%Y-%m-%d")
+    } for r in paginated_requests.items]
+    return jsonify({
+        "status": "success",
+        "loan_requests": requests_list,
+        "total_pages": paginated_requests.pages,
+        "current_page": paginated_requests.page,
+        "has_next": paginated_requests.has_next,
+        "has_prev": paginated_requests.has_prev
+    }), 200
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5005)
+            order.transfer.tracking_info = tracking_info
+            order.transfer.shipped_at = datetime.now(timezone.utc)
+        else:
+            new_transfer = ProductTransfer(
+                order_id=order.id,
+                status="shipped",
+                tracking_info=tracking_info,
+                initiated_at=datetime.now(timezone.utc),
+                shipped_at=datetime.now(timezone.utc)
+            )
+            db.session.add(new_transfer)
+        try:
+            db.session.commit()
+            msg = Message(
+                subject="Order Shipped - nova7",
+                recipients=[order.buyer.email],
+                body=f"Hi {order.buyer.full_name},\n\nYour order (ID: {order.id}) for {order.item.title} has been shipped. Tracking info: {tracking_info}.\n\nPlease confirm receipt once you receive the item.\n\nThank you,\nThe nova7 Team"
+            )
+            mail.send(msg)
+            return jsonify({"status": "success", "message": "Transfer initiated successfully", "transfer": {"order_id": order.id, "status": "shipped", "tracking_info": tracking_info}}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error initiating transfer: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to initiate transfer due to server error"}), 500
+
+@app.route("/api/marketplace/transfers/<int:transfer_id>/confirm-receipt", methods=["POST", "OPTIONS"])
+@jwt_required()
+def confirm_product_receipt(transfer_id):
+    if request.method == "OPTIONS": return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    transfer = ProductTransfer.query.get_or_404(transfer_id)
+    order = transfer.order
+    if order.buyer_id != current_user_id: return jsonify({"status": "error", "message": "Unauthorized: Only the buyer can confirm receipt"}), 403
+    if transfer.status != "shipped": return jsonify({"status": "error", "message": "Transfer must be in shipped status to confirm receipt"}), 400
+    transfer.status = "delivered"
+    transfer.receipt_confirmed_at = datetime.now(timezone.utc)
+    order.order_status = "completed"
+    try:
+        db.session.commit()
+        msg = Message(
+            subject="Order Delivery Confirmed - nova7",
+            recipients=[order.seller.email],
+            body=f"Hi {order.seller.full_name},\n\nThe buyer has confirmed receipt for order (ID: {order.id}) for {order.item.title}. The order is now completed.\n\nThank you,\nThe nova7 Team"
+        )
+        mail.send(msg)
+        return jsonify({"status": "success", "message": "Receipt confirmed successfully", "transfer": {"order_id": order.id, "status": transfer.status, "receipt_confirmed_at": transfer.receipt_confirmed_at.strftime("%Y-%m-%d %H:%M:%S")}}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error confirming receipt: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to confirm receipt due to server error"}), 500
+
+# --- Community Post API Endpoints ---
+@app.route('/api/community/posts', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def create_community_post():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    data = request.get_json()
+    if not data or not data.get('content'): return jsonify({"status": "error", "message": "Post content is required"}), 400
+    content = data.get('content')
+    image_url = data.get('imageUrl') 
+    new_post = CommunityPost(user_id=current_user_id, content=content, image_url=image_url)
+    try:
+        db.session.add(new_post)
+        db.session.commit()
+        return jsonify({"status": "success", "message": "Post created successfully!", "post": new_post.to_dict(current_user_id=current_user_id)}), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error creating community post: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to create post due to a server error."}), 500
+
+@app.route('/api/community/posts', methods=['GET', 'OPTIONS'])
+@jwt_required() 
+def get_community_posts():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity() 
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int) 
+    paginated_posts = CommunityPost.query.order_by(CommunityPost.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    posts_list = [post.to_dict(current_user_id=current_user_id) for post in paginated_posts.items] 
+    return jsonify({"status": "success", "posts": posts_list, "total_posts": paginated_posts.total, "total_pages": paginated_posts.pages, "current_page": paginated_posts.page, "has_next": paginated_posts.has_next, "has_prev": paginated_posts.has_prev }), 200
+
+@app.route('/api/community/posts/<int:post_id>', methods=['GET', 'PUT', 'DELETE', 'OPTIONS'])
+@jwt_required() 
+def manage_community_post(post_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    post = CommunityPost.query.get_or_404(post_id) 
+    current_user_id = get_jwt_identity() 
+    if request.method == 'GET':
+        return jsonify({"status": "success", "post": post.to_dict(current_user_id=current_user_id)}), 200
+    if post.user_id != current_user_id:
+        return jsonify({"status": "error", "message": "Unauthorized to modify this post"}), 403
+    if request.method == 'PUT':
+        data = request.get_json()
+        if not data or not data.get('content'): return jsonify({"status": "error", "message": "Content is required for update"}), 400
+        post.content = data.get('content')
+        if 'imageUrl' in data: post.image_url = data.get('imageUrl') 
+        try:
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Post updated successfully!", "post": post.to_dict(current_user_id=current_user_id)}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error updating post {post_id}: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to update post due to server error."}), 500
+    elif request.method == 'DELETE':
+        try:
+            db.session.delete(post)
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Post deleted successfully!"}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error deleting post {post_id}: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to delete post due to server error."}), 500
+    return jsonify({"status":"error", "message":"Method not allowed"}), 405
+
+@app.route('/api/community/posts/<int:post_id>/like', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def toggle_like_post(post_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    post = CommunityPost.query.get(post_id)
+    if not post: return jsonify({"status": "error", "message": "Post not found"}), 404
+    existing_like = Like.query.filter_by(user_id=current_user_id, post_id=post_id).first()
+    try:
+        if existing_like:
+            db.session.delete(existing_like)
+            db.session.commit()
+            action_message = "Post unliked successfully."
+            liked = False
+        else:
+            new_like = Like(user_id=current_user_id, post_id=post_id)
+            db.session.add(new_like)
+            db.session.commit()
+            action_message = "Post liked successfully."
+            liked = True
+        return jsonify({"status": "success", "message": action_message, "likes_count": post.likes.count(), "is_liked_by_current_user": liked }), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error toggling like on post {post_id}: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to update like status due to a server error."}), 500
+
+@app.route('/api/community/posts/<int:post_id>/comments', methods=['POST', 'OPTIONS', 'GET']) 
+@jwt_required() 
+def manage_post_comments(post_id): 
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    post = CommunityPost.query.get_or_404(post_id) 
+    if request.method == 'POST':
+        current_user_id = get_jwt_identity()
+        data = request.get_json()
+        if not data or not data.get('content'): return jsonify({"status": "error", "message": "Comment content is required"}), 400
+        content = data.get('content')
+        new_comment = Comment(content=content, user_id=current_user_id, post_id=post_id)
+        try:
+            db.session.add(new_comment)
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Comment added successfully!", "comment": new_comment.to_dict()}), 201
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error adding comment to post {post_id}: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to add comment due to a server error."}), 500
+    elif request.method == 'GET':
+        comments = Comment.query.filter_by(post_id=post_id).order_by(Comment.created_at.asc()).all()
+        comments_list = [comment.to_dict() for comment in comments]
+        return jsonify({"status": "success", "comments": comments_list}), 200
+
+@app.route('/api/community/comments/<int:comment_id>', methods=['PUT', 'DELETE', 'OPTIONS'])
+@jwt_required()
+def manage_comment(comment_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    comment = Comment.query.get_or_404(comment_id)
+    if comment.user_id != current_user_id:
+        return jsonify({"status": "error", "message": "Unauthorized to modify this comment"}), 403
+    if request.method == 'PUT':
+        data = request.get_json()
+        if not data or not data.get('content'):
+            return jsonify({"status": "error", "message": "Content is required for update"}), 400
+        comment.content = data.get('content')
+        try:
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Comment updated successfully", "comment": comment.to_dict()}), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"status": "error", "message": "Failed to update comment"}), 500
+    elif request.method == 'DELETE':
+        try:
+            db.session.delete(comment)
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Comment deleted successfully"}), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"status": "error", "message": "Failed to delete comment"}), 500
+    return jsonify({"status": "error", "message": "Method not allowed"}), 405
+
+# --- Chat Advisor Endpoint (Placeholder) ---
+@app.route('/api/chat/send', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def chat_send_message():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity() 
+    data = request.get_json()
+    if not data or not data.get('message'):
+        return jsonify({"status": "error", "message": "Message content is required"}), 400
+    user_message = data.get('message')
+    bot_response = f"Received: '{user_message}'. AI response logic to be implemented."
+    if "budget" in user_message.lower():
+        bot_response = "To create a budget, start by listing all income sources and then categorize your expenses (fixed vs. variable). Would you like some common categories?"
+    elif "save" in user_message.lower():
+        bot_response = "For savings, a good rule of thumb is the 50/30/20 rule: 50% for needs, 30% for wants, and 20% for savings. Does that sound like a good starting point?"
+    return jsonify({"status": "success", "reply": bot_response}), 200
+
+# --- User Settings Endpoints ---
+@app.route('/api/settings', methods=['GET', 'PUT', 'OPTIONS'])
+@jwt_required()
+def user_settings_route(): 
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    settings = UserSetting.query.filter_by(user_id=current_user_id).first()
+    if not settings: 
+        settings = UserSetting(user_id=current_user_id)
+        db.session.add(settings)
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error creating default settings for user {current_user_id}: {str(e)}")
+            return jsonify({"status": "error", "message": "Could not retrieve or create settings."}), 500
+    if request.method == 'GET':
+        return jsonify({"status": "success", "settings": settings.to_dict()}), 200
+    elif request.method == 'PUT':
+        data = request.get_json()
+        if not data: return jsonify({"status": "error", "message": "No data provided for update"}), 400
+        if 'language' in data: settings.language = data['language']
+        if 'email_notifications_enabled' in data: settings.email_notifications_enabled = bool(data['email_notifications_enabled'])
+        if 'theme' in data: settings.theme = data['theme']
+        try:
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Settings updated successfully", "settings": settings.to_dict()}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error updating settings: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to update settings due to server error"}), 500
+
+# --- Educational Resources Endpoints ---
+@app.route('/api/resources/categories', methods=['GET', 'OPTIONS'])
+def get_resource_categories():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    try:
+        categories = ResourceCategory.query.order_by(ResourceCategory.name).all()
+        if not categories and not os.environ.get('VERCEL'): 
+            seed_initial_data() 
+            categories = ResourceCategory.query.order_by(ResourceCategory.name).all()
+        return jsonify({"status": "success", "categories": [cat.to_dict() for cat in categories]}), 200
+    except Exception as e:
+        print(f"Error fetching resource categories: {str(e)}")
+        return jsonify({"status":"error", "message":"Could not fetch categories"}), 500
+
+@app.route('/api/resources/articles', methods=['GET', 'OPTIONS'])
+def get_resource_articles(): 
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    category_slug = request.args.get('category')
+    search_term = request.args.get('search') 
+    query = Article.query.filter_by(is_published=True)
+    if category_slug:
+        category = ResourceCategory.query.filter_by(slug=category_slug).first()
+        if category: query = query.filter_by(category_id=category.id)
+        else: return jsonify({"status": "success", "articles": []}), 200 
+    if search_term: query = query.filter(or_(Article.title.ilike(f'%{search_term}%'), Article.excerpt.ilike(f'%{search_term}%'), Article.content_html.ilike(f'%{search_term}%')))
+    articles = query.order_by(Article.published_at.desc()).all()
+    return jsonify({"status": "success", "articles": [article.to_dict() for article in articles]}), 200
+
+@app.route('/api/resources/articles/<string:article_slug>', methods=['GET', 'OPTIONS'])
+def get_resource_article_detail(article_slug):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    article = Article.query.filter_by(slug=article_slug, is_published=True).first()
+    if article: return jsonify({"status": "success", "article": article.to_dict(include_content=True)}), 200
+    return jsonify({"status": "error", "message": "Article not found"}), 404
+
+# --- GCS KYC Document Upload ---
+def allowed_kyc_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in {"png", "jpg", "jpeg", "pdf"}
+
+@app.route("/api/upload/kyc-document", methods=["POST", "OPTIONS"])
+@jwt_required()
+def upload_kyc_document():
+    if request.method == "OPTIONS": return _build_cors_preflight_response()
+    if not bucket: return jsonify({"status": "error", "message": "GCS Bucket not configured."}), 500
+    if "file" not in request.files: return jsonify({"status": "error", "message": "No file part"}), 400
+    file = request.files["file"]
+    if file.filename == "": return jsonify({"status": "error", "message": "No selected file"}), 400
+    if file and allowed_kyc_file(file.filename):
+        original_filename = secure_filename(file.filename)
+        unique_filename = str(uuid.uuid4()) + "_" + original_filename
+        gcs_path = f"kyc_documents/{unique_filename}"
+        try:
+            blob = bucket.blob(gcs_path)
+            blob.upload_from_string(file.read(), content_type=file.content_type)
+            blob.make_public()
+            public_url = blob.public_url
+            return jsonify({"status": "success", "message": "Document uploaded to GCS successfully", "documentUrl": public_url}), 201
+        except Exception as e:
+            print(f"Error uploading to GCS: {str(e)}")
+            return jsonify({"status": "error", "message": f"Failed to upload document to GCS: {str(e)}"}), 500
+    return jsonify({"status": "error", "message": "File type not allowed"}), 400
+
+# --- GCS Image Upload ---
+def allowed_file(filename):    
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/api/upload/image', methods=['POST', 'OPTIONS']) 
+@jwt_required()
+def upload_image():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    if not bucket: return jsonify({"status": "error", "message": "GCS Bucket not configured."}), 500
+    if 'file' not in request.files: return jsonify({"status": "error", "message": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '': return jsonify({"status": "error", "message": "No selected file"}), 400
+    if file and allowed_file(file.filename):
+        original_filename = secure_filename(file.filename)
+        unique_filename = str(uuid.uuid4()) + "_" + original_filename
+        context = request.args.get('context', 'general_uploads') 
+        gcs_path = f"{context}/{unique_filename}"
+        try:
+            blob = bucket.blob(gcs_path)
+            blob.upload_from_string(file.read(), content_type=file.content_type)
+            blob.make_public()
+            public_url = blob.public_url
+            return jsonify({"status": "success", "message": "Image uploaded to GCS successfully", "imageUrl": public_url}), 201
+        except Exception as e:
+            print(f"Error uploading to GCS: {str(e)}")
+            return jsonify({"status": "error", "message": f"Failed to upload image to GCS: {str(e)}"}), 500
+    return jsonify({"status": "error", "message": "File type not allowed"}), 400
+
+# --- Marketplace Buyer-Seller Contact Placeholder ---
+@app.route('/api/marketplace/items/<int:item_id>/contact-seller', methods=['POST', 'OPTIONS'])
+@jwt_required()
+def contact_seller_for_item(item_id):
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    item = MarketplaceItem.query.get_or_404(item_id)
+    data = request.get_json()
+    if not data or not data.get('message'):
+        return jsonify({"status": "error", "message": "Message content is required"}), 400
+    message_content = data.get('message')
+    buyer = User.query.get(current_user_id)
+    seller = item.seller
+    if not seller: return jsonify({"status": "error", "message": "Seller not found for this item"}), 404
+    if seller.id == current_user_id: return jsonify({"status": "error", "message": "You cannot message yourself"}), 400
+    try:
+        msg = Message(subject=f"New Inquiry about your item '{item.title}' on nova7", recipients=[seller.email], body=f"Hi {seller.full_name},\n\n{buyer.full_name} ({buyer.email}) is interested in your item: '{item.title}'.\n\nTheir message:\n{message_content}\n\nPlease log in to nova7 to respond or contact them directly.\n\nThanks,\nThe nova7 Team")
+        mail.send(msg)
+        return jsonify({"status": "success", "message": "Your message has been sent to the seller."}), 200
+    except Exception as e:
+        print(f"Error sending message to seller: {str(e)}")
+        return jsonify({"status": "error", "message": "Failed to send message to seller."}), 500
+
+# --- New Feature API Stubs (Lending, Withdrawals, Team Management) ---
+# Money Lending
+@app.route('/api/lending/money/requests', methods=['POST', 'GET', 'OPTIONS'])
+@jwt_required()
+def manage_loan_requests():
+    if request.method == "OPTIONS": return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    if request.method == "POST":
+        data = request.get_json()
+        if not data or not data.get("amount_requested") or not data.get("reason_summary"):
+            return jsonify({"status": "error", "message": "Amount and reason summary are required"}), 400
+        try:
+            amount = float(data.get("amount_requested"))
+            if amount <= 0: return jsonify({"status": "error", "message": "Amount must be positive"}), 400
+            if amount > 100000: return jsonify({"status": "error", "message": "Amount cannot exceed $100,000"}), 400
+        except ValueError: return jsonify({"status": "error", "message": "Invalid amount format"}), 400
+        reason_summary = data.get("reason_summary").strip()
+        if len(reason_summary) > 255: return jsonify({"status": "error", "message": "Reason summary must be 255 characters or less"}), 400
+        detailed_proposal = data.get("detailed_proposal", "").strip() or None
+        preferred_interest_rate = data.get("preferred_interest_rate")
+        if preferred_interest_rate is not None:
+            try:
+                preferred_interest_rate = float(preferred_interest_rate)
+                if preferred_interest_rate < 0 or preferred_interest_rate > 50:
+                    return jsonify({"status": "error", "message": "Interest rate must be between 0% and 50%"}), 400
+            except ValueError: return jsonify({"status": "error", "message": "Invalid interest rate format"}), 400
+        preferred_repayment_terms = data.get("preferred_repayment_terms", "").strip() or None
+        target_lender_id = data.get("target_lender_id")
+        if target_lender_id:
+            try:
+                target_lender_id = int(target_lender_id)
+                if not User.query.get(target_lender_id):
+                    return jsonify({"status": "error", "message": "Target lender not found"}), 404
+            except ValueError: return jsonify({"status": "error", "message": "Invalid target lender ID"}), 400
+        is_public_request = data.get("is_public_request", True)
+        new_request = LoanRequest(
+            requester_id=current_user_id,
+            amount_requested=amount,
+            reason_summary=reason_summary,
+            detailed_proposal=detailed_proposal,
+            preferred_interest_rate=preferred_interest_rate,
+            preferred_repayment_terms=preferred_repayment_terms,
+            target_lender_id=target_lender_id,
+            is_public_request=is_public_request,
+            status="pending_offers"
+        )
+        try:
+            db.session.add(new_request)
+            db.session.commit()
+            msg = Message(
+                subject="New Loan Request - nova7",
+                recipients=[new_request.requester.email],
+                body=f"Hi {new_request.requester.full_name},\n\nYour loan request for ${amount:.2f} has been submitted. You will be notified when offers are made.\n\nThank you,\nThe nova7 Team"
+            )
+            mail.send(msg)
+            return jsonify({"status": "success", "message": "Loan request submitted", "request_id": new_request.id}), 201
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error creating loan request: {str(e)}")
+            return jsonify({"status": "error", "message": "Failed to create loan request due to server error"}), 500
+    elif request.method == "GET":
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 10, type=int)
+        query = LoanRequest.query.filter(
+            LoanRequest.status == "pending_offers",
+            or_(LoanRequest.is_public_request == True, LoanRequest.target_lender_id == current_user_id, LoanRequest.requester_id == current_user_id)
+        ).order_by(LoanRequest.created_at.desc())
+        paginated_requests = query.paginate(page=page, per_page=per_page, error_out=False)
+        requests_list = [{
+            "id": r.id,
+            "requester_name": r.requester.full_name,
+            "amount_requested": r.amount_requested,
+            "reason_summary": r.reason_summary,
+            "preferred_interest_rate": r.preferred_interest_rate,
+            "is_public_request": r.is_public_request,
+            "created_at": r.created_at.strftime("%Y-%m-%d")
+        } for r in paginated_requests.items]
+        return jsonify({
+            "status": "success",
+            "loan_requests": requests_list,
+            "total_pages": paginated_requests.pages,
+            "current_page": paginated_requests.page,
+            "has_next": paginated_requests.has_next,
+            "has_prev": paginated_requests.has_prev
+        }), 200
+
+@app.route('/api/lending/money/my-requests', methods=['GET', 'OPTIONS'])
+@jwt_required()
+def get_my_loan_requests():
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    current_user_id = get_jwt_identity()
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 10, type=int)
+    query = LoanRequest.query.filter_by(requester_id=current_user_id).order_by(LoanRequest.created_at.desc())
+    paginated_requests = query.paginate(page=page, per_page=per_page, error_out=False)
+    requests_list = [{
+        "id": r.id,
+        "amount_requested": r.amount_requested,
+        "reason_summary": r.reason_summary,
+        "preferred_interest_rate": r.preferred_interest_rate,
+        "is_public_request": r.is_public_request,
+        "status": r.status,
+        "created_at": r.created_at.strftime("%Y-%m-%d")
+    } for r in paginated_requests.items]
+    return jsonify({
+        "status": "success",
+        "loan_requests": requests_list,
+        "total_pages": paginated_requests.pages,
+        "current_page": paginated_requests.page,
+        "has_next": paginated_requests.has_next,
+        "has_prev": paginated_requests.has_prev
+    }), 200
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5005)

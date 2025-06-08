@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "frontend/**/*", "use": "@vercel/static" },
+    { "src": "index.py", "use": "@vercel/python" }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/index.py" },
+    { "src": "/public/profile/(\d+)", "dest": "/index.py" },
+    { "src": "/(.*)", "dest": "/frontend/$1" }
+  ],
+  "env": { "FLASK_ENV": "production", "PYTHON_VERSION": "3.11" }
+}

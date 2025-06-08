@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Profile - nova7</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@500&family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #F0F2F5; }
+        .main-content-area { margin-left: 260px; padding: 2rem; width: calc(100% - 260px); }
+        .print-button { background-color: #16A34A; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; }
+        #id-card-container { width: 800px; height: 475px; background-color: white; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); padding: 24px; display: flex; flex-direction: column; margin: 2rem auto; }
+        #id-card-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #004182; padding-bottom: 12px; }
+        #id-card-header h2 { font-size: 22px; font-weight: 700; color: #004182; }
+        #id-card-header img { height: 40px; }
+        #id-card-body { display: flex; flex-grow: 1; padding-top: 20px; gap: 24px; }
+        #id-card-left { flex-basis: 30%; display: flex; flex-direction: column; align-items: center; }
+        #id-card-photo { width: 150px; height: 190px; background-color: #e2e8f0; border: 4px solid #004182; }
+        #id-card-photo img { width: 100%; height: 100%; object-fit: cover; }
+        #id-card-signature { margin-top: auto; width: 100%; text-align: center; }
+        #id-card-signature .label { font-size: 10px; color: #64748B; }
+        #id-card-signature .value { font-family: 'Dancing Script', cursive; font-size: 24px; border-bottom: 1px solid #9ca3af; }
+        #id-card-right { flex-basis: 70%; display: flex; gap: 20px; }
+        #id-card-info { flex-grow: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-family: 'Roboto Mono', monospace; }
+        .info-field .label { font-size: 11px; color: #64748B; }
+        .info-field .value { font-size: 15px; font-weight: 500; color: #002868; }
+        .info-field.full-width { grid-column: 1 / -1; }
+        #id-card-qr { width: 140px; height: 140px; }
+        #id-card-footer { margin-top: auto; padding-top: 12px; text-align: center; font-size: 10px; color: #9ca3af; }
+        .sidebar-nova7 { background-color: #004182; color: #E0F2FE; width: 260px; position: fixed; height: 100vh; top:0; left:0; z-index:40; }
+        .sidebar-nova7 a { display: flex; align-items: center; padding: 0.75rem 1.5rem; color: #E0F2FE; text-decoration: none; }
+        .sidebar-nova7 a i { width: 20px; margin-right: 0.75rem; }
+        .sidebar-nova7 a.active { background-color: white; color: #0A66C2; font-weight: 600; border-radius: 6px; margin: 0 1rem; }
+        @media print {
+            body * { visibility: hidden; }
+            #id-card-container, #id-card-container * { visibility: visible; }
+            #id-card-container { position: absolute; left: 0; top: 0; margin: 0; width: 100%; height: 100%; box-shadow: none; border-radius: 0; }
+        }
+    </style>
+</head>
+<body>
+    <aside class="sidebar-nova7">
+        <div style="padding: 1.5rem; text-align: center; border-bottom: 1px solid #0053a0; margin-bottom: 0.75rem;">
+            <a href="dashboard.html"><img src="nova-logo.png" style="max-height: 120px; width: auto; margin: 0 auto; filter: brightness(0) invert(1);"></a>
+        </div>
+        <a href="dashboard.html"><i class="fas fa-tachometer-alt"></i>Dashboard</a>
+        <a href="profile.html" class="active"><i class="fas fa-user-circle"></i>Profile</a>
+        <a href="settings.html"><i class="fas fa-cog"></i>Settings</a>
+    </aside>
+
+    <main class="main-content-area">
+        <header class="flex items-center justify-between mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">My Profile</h1>
+            <button id="printButton" class="print-button"><i class="fas fa-print mr-2"></i>Print ID Card</button>
+        </header>
+
+        <div id="id-card-container">
+            <div id="id-card-header">
+                <h2>NOVA7 IDENTITY CARD</h2>
+                <img src="nova-logo.png" alt="nova7 Logo">
+            </div>
+            <div id="id-card-body">
+                <div id="id-card-left">
+                    <div id="id-card-photo"><img id="profile-photo-val" alt="User Photo"></div>
+                    <div id="id-card-signature">
+                        <span class="value" id="signature-val"></span>
+                        <span class="label">HOLDER SIGNATURE</span>
+                    </div>
+                </div>
+                <div id="id-card-right">
+                    <div id="id-card-info">
+                        <div class="info-field"><span class="label">SURNAME</span><span class="value" id="surname-val"></span></div>
+                        <div class="info-field"><span class="label">GIVEN NAMES</span><span class="value" id="givennames-val"></span></div>
+                        <div class="info-field"><span class="label">ACCOUNT NUMBER</span><span class="value" id="account-val"></span></div>
+                        <div class="info-field"><span class="label">DATE OF BIRTH</span><span class="value" id="dob-val"></span></div>
+                        <div class="info-field"><span class="label">AGE</span><span class="value" id="age-val"></span></div>
+                        <div class="info-field"><span class="label">MEMBER SINCE</span><span class="value" id="member-since-val"></span></div>
+                        <div class="info-field full-width"><span class="label">ADDRESS</span><span class="value" id="address-val"></span></div>
+                        <div class="info-field"><span class="label">KYC STATUS</span><span class="value" id="kyc-val"></span></div>
+                        <div class="info-field"><span class="label">WALLET BALANCE</span><span class="value" id="balance-val"></span></div>
+                    </div>
+                    <div id="id-card-qr"><img id="qr-code-val" alt="QR Code"></div>
+                </div>
+            </div>
+            <div id="id-card-footer">This card is the property of nova7 Financial Services. If found, please return to nova7.</div>
+        </div>
+    </main>
+
+<script>
+    document.addEventListener('DOMContentLoaded', async () => {
+        const authToken = localStorage.getItem('nova7Token');
+        if (!authToken) { window.location.href = 'login.html'; return; }
+        
+        await fetchAndPopulateData();
+        document.getElementById('printButton').addEventListener('click', () => window.print());
+    });
+
+    async function fetchAndPopulateData() {
+        const authToken = localStorage.getItem('nova7Token');
+        const API_BASE_URL = 'http://127.0.0.1:5005';
+        try {
+            const [profileRes, balanceRes] = await Promise.all([
+                fetch(`${API_BASE_URL}/api/profile`, { headers: { 'Authorization': `Bearer ${authToken}` } }),
+                fetch(`${API_BASE_URL}/api/wallet/balance`, { headers: { 'Authorization': `Bearer ${authToken}` } })
+            ]);
+    
+            const profileData = await profileRes.json();
+            const balanceData = await balanceRes.json();
+    
+            if (!profileRes.ok || profileData.status !== 'success') throw new Error(profileData.message || 'Failed to fetch profile.');
+            
+            const balance = balanceRes.ok ? `$${parseFloat(balanceData.balance).toFixed(2)}` : 'N/A';
+            
+            populateIdCard(profileData.user, balance);
+        } catch (error) {
+            console.error("Profile page error:", error);
+            document.getElementById('givennames-val').textContent = "Could not load profile.";
+        }
+    }
+
+    function populateIdCard(user, balance) {
+        const [firstName, ...lastNameParts] = (user.fullName || "Jane Doe").split(" ");
+        const lastName = lastNameParts.join(" ") || "Doe";
+        const givenNames = firstName || "Jane";
+    
+        let age = 'N/A';
+        if (user.dateOfBirth) {
+            try {
+                const birthDate = new Date(user.dateOfBirth);
+                const today = new Date();
+                let calculatedAge = today.getFullYear() - birthDate.getFullYear();
+                const monthDifference = today.getMonth() - birthDate.getMonth();
+                if (monthDifference < 0 || (monthDifference === 0 && today.getDate() < birthDate.getDate())) {
+                    calculatedAge--;
+                }
+                age = calculatedAge;
+            } catch (e) {
+                console.error("Could not calculate age from date:", user.dateOfBirth);
+            }
+        }
+    
+        const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase() : 'N/A';
+    
+        document.getElementById('profile-photo-val').src = user.profilePictureUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.fullName || 'U')}&size=150&background=004182&color=fff`;
+        document.getElementById('signature-val').textContent = user.signature || user.fullName || "N/A";
+        document.getElementById('surname-val').textContent = lastName;
+        document.getElementById('givennames-val').textContent = givenNames;
+        document.getElementById('account-val').textContent = user.id?.toString().padStart(7, '0') || '0000000';
+        document.getElementById('dob-val').textContent = formatDate(user.dateOfBirth);
+        document.getElementById('age-val').textContent = age;
+        document.getElementById('member-since-val').textContent = formatDate(user.memberSince);
+        document.getElementById('address-val').textContent = user.address || 'Not Provided';
+        document.getElementById('kyc-val').textContent = user.kycStatus?.toUpperCase() || "PENDING";
+        document.getElementById('balance-val').textContent = balance;
+    
+        const qrData = `https://nova7.vercel.app/public/profile/${user.id}`;
+        document.getElementById('qr-code-val').src = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(qrData)}`;
+    }
+</script>
+
+</body>
+</html>

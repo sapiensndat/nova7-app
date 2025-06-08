@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reports - nova7</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F0F2F5;
+            color: #1a202c;
+        }
+        .sidebar-nova7 {
+            background-color: #004182; 
+            color: #E0F2FE; 
+            width: 260px;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.15);
+            height: 100vh; 
+            position: fixed;
+            top: 0; 
+            left: 0;
+            padding-top: 1.5rem;
+            transition: transform 0.3s ease-in-out;
+            z-index: 40;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 0 1.5rem 1rem 1.5rem; 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid #0053a0; 
+            margin-bottom: 0.75rem; 
+        }
+        .nova7-logo-header { /* For mobile header */
+            max-height: 36px;
+            width: auto;
+        }
+        .sidebar-logo-img { /* For sidebar */
+             max-height: 120px; 
+             width: auto;
+        }
+        .sidebar-nova7 .nav-link-sidebar {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1.5rem; 
+            border-radius: 6px;
+            margin: 0.25rem 1rem; 
+            font-weight: 500;
+            color: #E0F2FE; 
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .sidebar-nova7 .nav-link-sidebar:hover {
+            background-color: #0A66C2; 
+            color: #FFFFFF;
+        }
+        .sidebar-nova7 .nav-link-sidebar.active {
+            background-color: #FFFFFF; 
+            color: #0A66C2; 
+            font-weight: 600;
+        }
+        .sidebar-nova7 .nav-link-sidebar i {
+            width: 20px; 
+            margin-right: 0.75rem; 
+            text-align: center;
+        }
+        .main-content-area {
+            margin-left: 260px; 
+            padding: 2rem; 
+            width: calc(100% - 260px);
+            min-height: 100vh; 
+        }
+        .btn-primary-action { /* Consistent primary button */
+            background-color: #0A66C2; 
+            color: white;
+            border-radius: 8px; 
+            padding: 0.625rem 1.25rem;
+            font-weight: 600; 
+            transition: background-color 0.2s, opacity 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-primary-action:hover {
+            background-color: #004182; 
+        }
+        .btn-primary-action:disabled {
+            background-color: #A0AEC0;
+            cursor: not-allowed;
+        }
+        .form-input-filter, .form-select-filter { 
+            border: 1px solid #CBD5E0;
+            border-radius: 8px;
+            padding: 0.625rem 1rem;
+            font-size: 0.875rem;
+            background-color: #FFFFFF;
+            width: 100%; 
+        }
+        .report-card {
+            background-color: #FFFFFF;
+            border-radius: 12px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.07);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .report-card-title {
+            font-size: 1.25rem; 
+            font-weight: 600;
+            color: #2D3748; 
+            margin-bottom: 1rem;
+        }
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #E2E8F0; 
+        }
+        .summary-item:last-child {
+            border-bottom: none;
+        }
+        .summary-label {
+            font-weight: 500;
+            color: #4A5568; 
+        }
+        .summary-value {
+            font-weight: 600;
+            color: #1a202c;
+        }
+        .summary-value.income { color: #10B981; }
+        .summary-value.expense { color: #EF4444; }
+        .summary-value.net { color: #3B82F6; }
+
+        .chart-placeholder-reports { 
+            min-height: 300px; 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px dashed #E2E8F0;
+            border-radius: 8px;
+            color: #A0AEC0;
+            font-size: 1rem; 
+            text-align: center;
+        }
+        .category-spending-list {
+            list-style: none;
+            padding: 0;
+        }
+        .category-spending-list li {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            font-size: 0.9rem;
+            border-bottom: 1px solid #F3F4F6; 
+        }
+        .category-spending-list li:last-child {
+            border-bottom: none;
+        }
+        .category-name { color: #374151; } 
+        .category-amount { font-weight: 500; color: #EF4444; } 
+
+
+        .mobile-header { display: none; }
+        @media (max-width: 768px) {
+            .sidebar-nova7 { transform: translateX(-100%); top: 0; height: 100vh; }
+            .sidebar-nova7.open { transform: translateX(0); }
+            .main-content-area { margin-left: 0; width: 100%; padding-top: calc(60px + 1rem); padding:1rem; }
+            .desktop-header { display: none; }
+            .mobile-header {
+                display: flex; background-color: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                padding: 0 1rem; height: 60px; align-items: center; justify-content: space-between;
+                position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+            }
+            .report-filters-grid { grid-template-columns: 1fr; } 
+            .report-filters-grid #customDateRange { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+
+    <header class="mobile-header md:hidden">
+        <button id="hamburgerBtnMobile" class="p-2 text-gray-700 hover:text-blue-600">
+            <i class="fas fa-bars text-2xl"></i>
+        </button>
+        <a href="dashboard.html">
+            <img src="nova-logo.png" alt="nova7 Logo" class="nova7-logo-header">
+        </a>
+        <a href="#" id="mobileLogoutLink" class="p-2 text-gray-700 hover:text-blue-600">
+            <i class="fas fa-sign-out-alt text-xl"></i>
+        </a>
+    </header>
+
+    <aside id="sidebar" class="sidebar-nova7">
+        <div class="sidebar-header">
+            <a href="dashboard.html" class="flex items-center">
+                <img src="nova-logo.png" alt="nova7 Logo" class="sidebar-logo-img" 
+                     style="filter: brightness(0) invert(1);"
+                     onerror="this.style.display='none';"> 
+            </a>
+        </div>
+        <nav class="flex-grow">
+            <a href="dashboard.html" class="nav-link-sidebar">
+                <i class="fas fa-tachometer-alt"></i>Dashboard
+            </a>
+            <a href="view-transactions.html" class="nav-link-sidebar"> 
+                <i class="fas fa-exchange-alt"></i>Transactions
+            </a>
+            <a href="reports.html" class="nav-link-sidebar active"> 
+                <i class="fas fa-chart-pie"></i>Reports
+            </a>
+            <a href="community.html" class="nav-link-sidebar">
+                <i class="fas fa-users"></i>Community
+            </a>
+            <a href="chatbot.html" class="nav-link-sidebar">
+                <i class="fas fa-comments-dollar"></i>Chat Advisor
+            </a>
+            <a href="resources.html" class="nav-link-sidebar"> 
+                <i class="fas fa-book-open"></i>Resources
+            </a>
+            <a href="settings.html" class="nav-link-sidebar">
+                <i class="fas fa-cog"></i>Settings
+            </a>
+        </nav>
+        <div class="pb-4"> 
+            <a href="profile.html" class="nav-link-sidebar"> 
+                <i class="fas fa-user-circle"></i>Profile
+            </a>
+            <a href="#" id="sidebarLogoutLink" class="nav-link-sidebar"> 
+                <i class="fas fa-sign-out-alt"></i>Logout
+            </a>
+        </div>
+    </aside>
+
+    <main class="main-content-area">
+        <header class="desktop-header hidden md:flex items-center justify-between mb-6">
+            <h1 class="text-2xl font-semibold text-gray-800">Financial Reports</h1>
+            <div class="flex items-center space-x-3">
+                <span id="desktopUserWelcome" class="text-sm text-gray-700">Welcome, User!</span> 
+            </div>
+        </header>
+        <h1 class="text-xl font-semibold text-gray-800 mb-4 md:hidden">Financial Reports</h1>
+
+        <div class="report-card">
+            <h2 class="report-card-title">Report Filters</h2>
+            <div id="reportFiltersForm" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end report-filters-grid">
+                <div>
+                    <label for="reportPeriod" class="block text-xs font-medium text-gray-700 mb-1">Select Period</label>
+                    <select id="reportPeriod" name="reportPeriod" class="form-select-filter w-full">
+                        <option value="all_time" selected>All Time</option>
+                        <option value="current_month">Current Month</option>
+                        <option value="last_month">Last Month</option>
+                        <option value="current_quarter">Current Quarter</option>
+                        <option value="last_quarter">Last Quarter</option>
+                        <option value="current_year">Current Year</option>
+                        <option value="custom_range">Custom Range</option>
+                    </select>
+                </div>
+                <div id="customDateRange" class="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 hidden">
+                     <div>
+                        <label for="reportStartDate" class="block text-xs font-medium text-gray-700 mb-1">Start Date</label>
+                        <input type="date" id="reportStartDate" name="reportStartDate" class="form-input-filter w-full">
+                    </div>
+                    <div>
+                        <label for="reportEndDate" class="block text-xs font-medium text-gray-700 mb-1">End Date</label>
+                        <input type="date" id="reportEndDate" name="reportEndDate" class="form-input-filter w-full">
+                    </div>
+                </div>
+                <div class="lg:col-start-3 flex justify-end pt-3 md:pt-0"> 
+                    <button id="generateReportBtn" class="btn-primary-action w-full md:w-auto">Generate Report</button>
+                </div>
+            </div>
+            <div id="reportMessage" class="text-sm mt-3"></div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="report-card">
+                <h2 class="report-card-title">Income vs. Expense Summary</h2>
+                <div id="incomeExpenseSummary">
+                    <div class="summary-item">
+                        <span class="summary-label">Total Income:</span>
+                        <span class="summary-value income" id="reportTotalIncome">$0.00</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Total Expenses:</span>
+                        <span class="summary-value expense" id="reportTotalExpenses">$0.00</span>
+                    </div>
+                    <div class="summary-item pt-3 mt-2 border-t-2 border-gray-300">
+                        <span class="summary-label text-lg">Net Profit/Loss:</span>
+                        <span class="summary-value net text-lg" id="reportNetProfit">$0.00</span>
+                    </div>
+                </div>
+                 <div class="mt-4 chart-placeholder-reports" id="incomeExpenseChartPlaceholder">
+                    <i class="fas fa-chart-bar text-3xl mr-2"></i> Income vs. Expense Chart
+                </div>
+            </div>
+
+            <div class="report-card">
+                <h2 class="report-card-title">Spending by Category</h2>
+                <ul id="categorySpendingList" class="category-spending-list">
+                    <li class="text-gray-500">Generate a report to see spending by category.</li>
+                </ul>
+                <div class="mt-4 chart-placeholder-reports" id="categoryChartPlaceholder">
+                    <i class="fas fa-chart-pie text-3xl mr-2"></i> Category Spending Chart
+                </div>
+            </div>
+        </div>
+        
+    </main>
+
+    <script>
+        // --- Auth Check, Sidebar, Logout (Keep from previous scripts) ---
+        document.addEventListener('DOMContentLoaded', function() {
+            const token = localStorage.getItem('nova7Token');
+            if (!token) { window.location.href = 'login.html'; return; }
+            try {
+                const user = JSON.parse(localStorage.getItem('nova7User'));
+                const userName = user.fullName || "User";
+                const desktopUserWelcomeElement = document.getElementById('desktopUserWelcome');
+                if(desktopUserWelcomeElement) desktopUserWelcomeElement.textContent = `Welcome, ${userName}!`;
+            } catch(e) { console.error("Error parsing user data for welcome", e); }
+            
+            fetchAndDisplayReports(); // Fetch reports on initial load
+        });
+
+        function handleLogout() { 
+            localStorage.removeItem('nova7Token');
+            localStorage.removeItem('nova7User');
+            window.location.href = 'login.html';
+        }
+        const sidebarLogoutLink = document.getElementById('sidebarLogoutLink');
+        if (sidebarLogoutLink) sidebarLogoutLink.addEventListener('click', function(e){ e.preventDefault(); handleLogout(); });
+        const mobileLogoutLink = document.getElementById('mobileLogoutLink');
+        if (mobileLogoutLink) mobileLogoutLink.addEventListener('click', function(e){ e.preventDefault(); handleLogout(); });
+        
+        const hamburgerBtnMobile = document.getElementById('hamburgerBtnMobile');
+        const sidebar = document.getElementById('sidebar');
+        if (hamburgerBtnMobile && sidebar) {
+            hamburgerBtnMobile.addEventListener('click', function(e) { e.stopPropagation(); sidebar.classList.toggle('open'); });
+        }
+        document.addEventListener('click', function(e) {
+            if (sidebar && sidebar.classList.contains('open') && !sidebar.contains(e.target) && (!hamburgerBtnMobile || !hamburgerBtnMobile.contains(e.target))) {
+                sidebar.classList.remove('open');
+            }
+        });
+        // --- End of standard setup ---
+
+
+        // --- Report Filters Logic ---
+        const reportPeriodSelect = document.getElementById('reportPeriod');
+        const customDateRangeDiv = document.getElementById('customDateRange');
+        const generateReportBtn = document.getElementById('generateReportBtn');
+        const reportMessageDiv = document.getElementById('reportMessage');
+
+        if (reportPeriodSelect && customDateRangeDiv) {
+            reportPeriodSelect.addEventListener('change', function() {
+                if (this.value === 'custom_range') {
+                    customDateRangeDiv.classList.remove('hidden');
+                } else {
+                    customDateRangeDiv.classList.add('hidden');
+                }
+            });
+        }
+
+        async function fetchAndDisplayReports() {
+            const token = localStorage.getItem('nova7Token');
+            if (!token) {
+                handleLogout(); 
+                return;
+            }
+
+            reportMessageDiv.textContent = 'Loading reports...';
+            reportMessageDiv.className = 'text-sm mt-3 text-gray-600';
+            generateReportBtn.disabled = true;
+
+            let startDate = '';
+            let endDate = '';
+            const period = reportPeriodSelect.value;
+
+            if (period === 'custom_range') {
+                startDate = document.getElementById('reportStartDate').value;
+                endDate = document.getElementById('reportEndDate').value;
+                if (!startDate || !endDate) {
+                    reportMessageDiv.textContent = 'Please select a start and end date for custom range.';
+                    reportMessageDiv.className = 'text-sm mt-3 text-red-500';
+                    generateReportBtn.disabled = false;
+                    return;
+                }
+            }
+            
+            const baseUrl = 'http://127.0.0.1:5005/api/reports';
+            let incomeExpenseUrl = `${baseUrl}/income-expense`;
+            let categorySpendingUrl = `${baseUrl}/category-spending`;
+
+            if (startDate && endDate) {
+                incomeExpenseUrl += `?start_date=${startDate}&end_date=${endDate}`;
+                categorySpendingUrl += `?start_date=${startDate}&end_date=${endDate}`;
+            }
+            
+            try {
+                // Fetch Income/Expense Report
+                const ieResponse = await fetch(incomeExpenseUrl, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const ieData = await ieResponse.json();
+
+                if (ieResponse.ok && ieData.status === 'success') {
+                    document.getElementById('reportTotalIncome').textContent = `$${ieData.report.totalIncome.toFixed(2)}`;
+                    document.getElementById('reportTotalExpenses').textContent = `$${ieData.report.totalExpenses.toFixed(2)}`;
+                    document.getElementById('reportNetProfit').textContent = `$${ieData.report.netProfitLoss.toFixed(2)}`;
+                    document.getElementById('incomeExpenseChartPlaceholder').textContent = `Income vs. Expense data for ${ieData.report.period.start_date} to ${ieData.report.period.end_date} loaded. Chart rendering TBD.`;
+                } else {
+                    throw new Error(ieData.message || 'Failed to load income/expense report');
+                }
+
+                // Fetch Category Spending Report
+                const csResponse = await fetch(categorySpendingUrl, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const csData = await csResponse.json();
+                const categoryList = document.getElementById('categorySpendingList');
+                categoryList.innerHTML = ''; 
+
+                if (csResponse.ok && csData.status === 'success') {
+                    if (csData.report.length > 0) {
+                        csData.report.forEach(item => {
+                            const li = document.createElement('li');
+                            li.innerHTML = `<span class="category-name">${item.category}</span> <span class="category-amount">-$${item.total_spent.toFixed(2)}</span>`;
+                            categoryList.appendChild(li);
+                        });
+                    } else {
+                        categoryList.innerHTML = '<li class="text-gray-500">No expense data for this period.</li>';
+                    }
+                    document.getElementById('categoryChartPlaceholder').textContent = `Category spending data for ${csData.period.start_date} to ${csData.period.end_date} loaded. Chart rendering TBD.`;
+                } else {
+                    throw new Error(csData.message || 'Failed to load category spending report');
+                }
+                reportMessageDiv.textContent = 'Reports generated successfully.';
+                reportMessageDiv.className = 'text-sm mt-3 text-green-600';
+
+            } catch (error) {
+                console.error("Error fetching reports:", error);
+                reportMessageDiv.textContent = `Error loading reports: ${error.message}`;
+                reportMessageDiv.className = 'text-sm mt-3 text-red-500';
+                if (error.message.includes("token") || error.message.includes("Unauthorized")) handleLogout(); 
+            } finally {
+                generateReportBtn.disabled = false;
+            }
+        }
+
+        if (generateReportBtn) {
+            generateReportBtn.addEventListener('click', fetchAndDisplayReports);
+        }
+        
+        console.log("Reports page loaded.");
+    </script>
+
+</body>
+</html>

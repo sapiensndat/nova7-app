@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resources - nova7</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F0F2F5;
+            color: #1a202c;
+        }
+        /* --- Sidebar Styles (Consistent) --- */
+        .sidebar-nova7 {
+            background-color: #004182; 
+            color: #E0F2FE; 
+            width: 260px;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.15);
+            height: 100vh; 
+            position: fixed;
+            top: 0; 
+            left: 0;
+            padding-top: 1.5rem;
+            transition: transform 0.3s ease-in-out;
+            z-index: 40;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 0 1.5rem 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid #0053a0; 
+            margin-bottom: 0.75rem;
+        }
+        .nova7-logo-header { /* For mobile header */
+            max-height: 36px;
+            width: auto;
+        }
+         .sidebar-logo-img { 
+             max-height: 120px; 
+             width: auto;
+        }
+        .sidebar-nova7 .nav-link-sidebar {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1.5rem; 
+            border-radius: 6px;
+            margin: 0.25rem 1rem; 
+            font-weight: 500;
+            color: #E0F2FE; 
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .sidebar-nova7 .nav-link-sidebar:hover {
+            background-color: #0A66C2; 
+            color: #FFFFFF;
+        }
+        .sidebar-nova7 .nav-link-sidebar.active { 
+            background-color: #FFFFFF; 
+            color: #0A66C2; 
+            font-weight: 600;
+        }
+        .sidebar-nova7 .nav-link-sidebar i {
+            width: 20px; 
+            margin-right: 0.75rem; 
+            text-align: center;
+        }
+        .main-content-area {
+            margin-left: 260px; 
+            padding: 2rem; 
+            width: calc(100% - 260px);
+            min-height: 100vh; 
+        }
+        .resource-card {
+            background-color: #FFFFFF;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            display: flex; /* For better internal alignment */
+            flex-direction: column;
+            height: 100%; /* Make cards in a row same height */
+        }
+        .resource-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+        }
+        .resource-card-title {
+            font-size: 1.125rem; 
+            font-weight: 600;
+            color: #0A66C2; 
+            margin-bottom: 0.5rem;
+            line-height: 1.4; /* Ensure consistent line height */
+        }
+        .resource-card-excerpt {
+            font-size: 0.875rem; 
+            color: #4A5568; 
+            line-height: 1.6;
+            margin-bottom: 1rem;
+            flex-grow: 1; /* Allow excerpt to take available space */
+        }
+        .resource-card-meta {
+            font-size: 0.75rem; 
+            color: #718096; 
+            margin-top: auto; /* Push meta to bottom */
+        }
+        .resource-card-meta .tag {
+            background-color: #E0E7FF; 
+            color: #3730A3; 
+            padding: 0.25rem 0.5rem;
+            border-radius: 12px; 
+            margin-right: 0.5rem;
+            font-weight: 500;
+            font-size: 0.7rem; /* Smaller tag text */
+        }
+        .search-bar-resources {
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 0.75rem; /* Space between input and button */
+        }
+        .form-input-search {
+             border: 1px solid #D1D5DB; /* gray-300 */
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            flex-grow: 1;
+            font-size: 0.95rem;
+        }
+        .form-input-search:focus {
+            outline: none;
+            border-color: #0A66C2;
+            box-shadow: 0 0 0 2px rgba(10, 102, 194, 0.2);
+        }
+        .btn-search {
+            background-color: #0A66C2; 
+            color: white;
+            border-radius: 8px; 
+            padding: 0.75rem 1.25rem;
+            font-weight: 500; 
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .btn-search:hover {
+            background-color: #004182;
+        }
+        .category-section h2 {
+            font-size: 1.75rem; /* Larger category titles */
+            font-weight: 700;
+            color: #1F2937; 
+            margin-bottom: 1.5rem; /* More space below title */
+            padding-bottom: 0.75rem; /* More padding for border */
+            border-bottom: 2px solid #0A66C2; 
+        }
+        .category-filter-nav {
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .category-filter-btn {
+            padding: 0.5rem 1rem;
+            border: 1px solid #D1D5DB;
+            border-radius: 20px; /* Pill shape */
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #4B5563;
+            background-color: #FFFFFF;
+            cursor: pointer;
+            transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+        }
+        .category-filter-btn:hover {
+            background-color: #EFF6FF; /* Light blue */
+            color: #0A66C2;
+            border-color: #0A66C2;
+        }
+        .category-filter-btn.active {
+            background-color: #0A66C2;
+            color: #FFFFFF;
+            border-color: #0A66C2;
+        }
+
+        .mobile-header { display: none; }
+        @media (max-width: 768px) {
+            .sidebar-nova7 { transform: translateX(-100%); top: 0; height: 100vh; }
+            .sidebar-nova7.open { transform: translateX(0); }
+            .main-content-area { margin-left: 0; width: 100%; padding-top: calc(60px + 1rem); padding: 1rem; }
+            .desktop-header { display: none; }
+            .mobile-header {
+                display: flex; background-color: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                padding: 0 1rem; height: 60px; align-items: center; justify-content: space-between;
+                position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+            }
+            .search-bar-resources { flex-direction: column; }
+            .category-section h2 { font-size: 1.5rem; }
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+
+    <header class="mobile-header md:hidden">
+        <button id="hamburgerBtnMobile" class="p-2 text-gray-700 hover:text-blue-600">
+            <i class="fas fa-bars text-2xl"></i>
+        </button>
+        <a href="dashboard.html">
+            <img src="nova-logo.png" alt="nova7 Logo" class="nova7-logo-header">
+        </a>
+        <a href="#" id="mobileLogoutLink" class="p-2 text-gray-700 hover:text-blue-600">
+            <i class="fas fa-sign-out-alt text-xl"></i>
+        </a>
+    </header>
+
+    <aside id="sidebar" class="sidebar-nova7">
+        <div class="sidebar-header">
+            <a href="dashboard.html" class="flex items-center">
+                <img src="nova-logo.png" alt="nova7 Logo" class="sidebar-logo-img" 
+                     style="filter: brightness(0) invert(1);"
+                     onerror="this.style.display='none';"> 
+            </a>
+        </div>
+        <nav class="flex-grow">
+            <a href="dashboard.html" class="nav-link-sidebar">
+                <i class="fas fa-tachometer-alt"></i>Dashboard
+            </a>
+            <a href="view-transactions.html" class="nav-link-sidebar"> 
+                <i class="fas fa-exchange-alt"></i>Transactions
+            </a>
+            <a href="reports.html" class="nav-link-sidebar"> 
+                <i class="fas fa-chart-pie"></i>Reports
+            </a>
+            <a href="community.html" class="nav-link-sidebar">
+                <i class="fas fa-users"></i>Community
+            </a>
+            <a href="chatbot.html" class="nav-link-sidebar">
+                <i class="fas fa-comments-dollar"></i>Chat Advisor
+            </a>
+            <a href="resources.html" class="nav-link-sidebar active"> 
+                <i class="fas fa-book-open"></i>Resources
+            </a>
+            <a href="settings.html" class="nav-link-sidebar">
+                <i class="fas fa-cog"></i>Settings
+            </a>
+        </nav>
+        <div class="pb-4"> 
+            <a href="profile.html" class="nav-link-sidebar"> 
+                <i class="fas fa-user-circle"></i>Profile
+            </a>
+            <a href="#" id="sidebarLogoutLink" class="nav-link-sidebar"> 
+                <i class="fas fa-sign-out-alt"></i>Logout
+            </a>
+        </div>
+    </aside>
+
+    <main class="main-content-area">
+        <header class="desktop-header hidden md:flex items-center justify-between mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">Learning Center & Resources</h1>
+            <div class="flex items-center space-x-3">
+                <span id="desktopUserWelcome" class="text-sm text-gray-700">Welcome, User!</span> 
+            </div>
+        </header>
+        <h1 class="text-2xl font-bold text-gray-800 mb-6 md:hidden">Learning Center</h1>
+
+        <div class="search-bar-resources">
+            <input type="search" id="resourceSearchInput" class="form-input-search" placeholder="Search resources (e.g., budgeting, cash flow)...">
+            <button id="resourceSearchBtn" class="btn-search"><i class="fas fa-search mr-2"></i>Search</button>
+        </div>
+        
+        <nav class="category-filter-nav" id="categoryFilterNav">
+            <button class="category-filter-btn active" data-category-slug="">All Topics</button>
+        </nav>
+
+        <div id="resourceMessage" class="text-center my-4"></div>
+        
+        <div id="articlesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <p id="articlesLoadingMessage" class="text-center text-gray-500 py-8 col-span-full">Loading resources...</p>
+        </div>
+        
+    </main>
+
+    <script>
+        // --- Auth Check, Sidebar, Logout (Standard Setup) ---
+        document.addEventListener('DOMContentLoaded', function() {
+            const token = localStorage.getItem('nova7Token');
+            // Resources can be public, so no immediate redirect if no token
+            try {
+                const user = JSON.parse(localStorage.getItem('nova7User'));
+                const userName = user ? user.fullName || "User" : "User";
+                const desktopUserWelcomeElement = document.getElementById('desktopUserWelcome');
+                if(desktopUserWelcomeElement) desktopUserWelcomeElement.textContent = `Welcome, ${userName}!`;
+            } catch(e) { console.error("Error parsing user data for welcome", e); }
+            
+            fetchResourceCategories();
+            fetchArticles(); // Fetch all articles initially
+        });
+
+        function handleLogout() { 
+            localStorage.removeItem('nova7Token');
+            localStorage.removeItem('nova7User');
+            window.location.href = 'login.html';
+        }
+        const sidebarLogoutLink = document.getElementById('sidebarLogoutLink');
+        if (sidebarLogoutLink) sidebarLogoutLink.addEventListener('click', function(e){ e.preventDefault(); handleLogout(); });
+        const mobileLogoutLink = document.getElementById('mobileLogoutLink');
+        if (mobileLogoutLink) mobileLogoutLink.addEventListener('click', function(e){ e.preventDefault(); handleLogout(); });
+        
+        const hamburgerBtnMobile = document.getElementById('hamburgerBtnMobile');
+        const sidebar = document.getElementById('sidebar');
+        if (hamburgerBtnMobile && sidebar) {
+            hamburgerBtnMobile.addEventListener('click', function(e) { e.stopPropagation(); sidebar.classList.toggle('open'); });
+        }
+        document.addEventListener('click', function(e) {
+            if (sidebar && sidebar.classList.contains('open') && !sidebar.contains(e.target) && (!hamburgerBtnMobile || !hamburgerBtnMobile.contains(e.target))) {
+                sidebar.classList.remove('open');
+            }
+        });
+        // --- End of Standard Setup ---
+
+        const articlesGrid = document.getElementById('articlesGrid');
+        const articlesLoadingMessage = document.getElementById('articlesLoadingMessage');
+        const resourceSearchInput = document.getElementById('resourceSearchInput');
+        const resourceSearchBtn = document.getElementById('resourceSearchBtn');
+        const categoryFilterNav = document.getElementById('categoryFilterNav');
+        const resourceMessageDiv = document.getElementById('resourceMessage');
+        let currentCategoryFilter = ""; // To store the active category slug
+
+        async function fetchResourceCategories() {
+            try {
+                const response = await fetch('http://127.0.0.1:5005/api/resources/categories');
+                const data = await response.json();
+                if (response.ok && data.status === 'success') {
+                    renderCategories(data.categories);
+                } else {
+                    console.error("Failed to fetch categories:", data.message);
+                }
+            } catch (error) {
+                console.error("Error fetching categories:", error);
+            }
+        }
+
+        function renderCategories(categories) {
+            // Keep "All Topics" button, remove others before adding new ones
+            const existingCategoryButtons = categoryFilterNav.querySelectorAll('.category-filter-btn:not([data-category-slug=""])');
+            existingCategoryButtons.forEach(btn => btn.remove());
+
+            categories.forEach(cat => {
+                const button = document.createElement('button');
+                button.classList.add('category-filter-btn');
+                button.dataset.categorySlug = cat.slug;
+                button.innerHTML = `<i class="${cat.icon || 'fas fa-folder'} mr-2 opacity-75"></i> ${cat.name}`;
+                button.addEventListener('click', function() {
+                    document.querySelectorAll('.category-filter-btn').forEach(btn => btn.classList.remove('active'));
+                    this.classList.add('active');
+                    currentCategoryFilter = this.dataset.categorySlug;
+                    fetchArticles(currentCategoryFilter, resourceSearchInput.value.trim());
+                });
+                categoryFilterNav.appendChild(button);
+            });
+        }
+        
+        // Add listener to the initial "All Topics" button
+        const allTopicsBtn = categoryFilterNav.querySelector('.category-filter-btn[data-category-slug=""]');
+        if(allTopicsBtn){
+            allTopicsBtn.addEventListener('click', function() {
+                document.querySelectorAll('.category-filter-btn').forEach(btn => btn.classList.remove('active'));
+                this.classList.add('active');
+                currentCategoryFilter = "";
+                fetchArticles("", resourceSearchInput.value.trim());
+            });
+        }
+
+
+        async function fetchArticles(categorySlug = "", searchTerm = "") {
+            if (articlesLoadingMessage) articlesLoadingMessage.style.display = 'block';
+            articlesGrid.innerHTML = ''; // Clear previous articles
+            if (resourceMessageDiv) resourceMessageDiv.textContent = '';
+
+            let apiUrl = `http://127.0.0.1:5005/api/resources/articles`;
+            const queryParams = new URLSearchParams();
+            if (categorySlug) {
+                queryParams.append('category', categorySlug);
+            }
+            if (searchTerm) {
+                queryParams.append('search', searchTerm); // Assuming backend supports 'search' query param
+            }
+            const queryString = queryParams.toString();
+            if (queryString) {
+                apiUrl += `?${queryString}`;
+            }
+            
+            try {
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+                if (articlesLoadingMessage) articlesLoadingMessage.style.display = 'none';
+
+                if (response.ok && data.status === 'success') {
+                    renderArticles(data.articles);
+                } else {
+                    articlesGrid.innerHTML = `<p class="text-center text-red-500 py-8 col-span-full">Error: ${data.message || 'Could not load articles.'}</p>`;
+                }
+            } catch (error) {
+                console.error("Error fetching articles:", error);
+                if (articlesLoadingMessage) articlesLoadingMessage.style.display = 'none';
+                articlesGrid.innerHTML = '<p class="text-center text-red-500 py-8 col-span-full">Failed to connect to server to load articles.</p>';
+            }
+        }
+
+        function renderArticles(articles) {
+            articlesGrid.innerHTML = ''; // Clear previous or loading message
+            if (articles.length === 0) {
+                articlesGrid.innerHTML = '<p class="text-center text-gray-500 py-8 col-span-full">No resources found matching your criteria.</p>';
+                return;
+            }
+            articles.forEach(article => {
+                const articleCard = document.createElement('a');
+                articleCard.href = `article-detail.html?slug=${article.slug}`; // Link to detail page
+                articleCard.classList.add('resource-card', 'block'); // 'block' to make whole card clickable
+                
+                articleCard.innerHTML = `
+                    <h3 class="resource-card-title">${article.title}</h3>
+                    <p class="resource-card-excerpt">${article.excerpt || 'Read more to find out...'}</p>
+                    <div class="resource-card-meta">
+                        ${article.category_name ? `<span class="tag">${article.category_name}</span>` : ''}
+                        ${article.read_time_minutes ? `<span><i class="far fa-clock mr-1"></i> ${article.read_time_minutes} min read</span>` : ''}
+                    </div>
+                `;
+                articlesGrid.appendChild(articleCard);
+            });
+        }
+
+        if (resourceSearchBtn && resourceSearchInput) {
+            resourceSearchBtn.addEventListener('click', function() {
+                fetchArticles(currentCategoryFilter, resourceSearchInput.value.trim());
+            });
+            resourceSearchInput.addEventListener('keypress', function(event) {
+                if (event.key === 'Enter') {
+                    resourceSearchBtn.click();
+                }
+            });
+        }
+        
+        console.log("Resources page loaded.");
+    </script>
+
+</body>
+</html>

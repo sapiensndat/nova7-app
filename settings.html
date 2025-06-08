@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - nova7</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #F0F2F5; color: #1a202c; }
+        .main-content-area { margin-left: 260px; padding: 2rem; width: calc(100% - 260px); }
+        .sidebar-nova7 { background-color: #004182; color: #E0F2FE; width: 260px; box-shadow: 2px 0 8px rgba(0,0,0,0.15); height: 100vh; position: fixed; top: 0; left: 0; padding-top: 1.5rem; transition: transform 0.3s ease-in-out; z-index: 40; display: flex; flex-direction: column; }
+        .sidebar-header { padding: 0 1.5rem 1rem 1.5rem; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #0053a0; margin-bottom: 0.75rem; }
+        .sidebar-logo-img { max-height: 120px; width: auto; filter: brightness(0) invert(1); }
+        .sidebar-nova7 .nav-link-sidebar { display: flex; align-items: center; padding: 0.75rem 1.5rem; border-radius: 6px; margin: 0.25rem 1rem; font-weight: 500; color: #E0F2FE; text-decoration: none; }
+        .sidebar-nova7 .nav-link-sidebar:hover { background-color: #0A66C2; }
+        .sidebar-nova7 .nav-link-sidebar.active { background-color: #FFFFFF; color: #0A66C2; font-weight: 600; }
+        .sidebar-nova7 .nav-link-sidebar i { width: 20px; margin-right: 0.75rem; text-align: center; }
+        .card-settings { background-color: #FFFFFF; border-radius: 12px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.07); padding: 2rem; }
+        .setting-section { margin-bottom: 2.5rem; padding-bottom: 2rem; border-bottom: 1px solid #E2E8F0; }
+        .setting-section:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+        .setting-label { display: block; font-weight: 500; color: #4A5568; margin-bottom: 0.5rem; font-size: 0.875rem; }
+        .form-input-styled { border: 1px solid #CBD5E0; border-radius: 8px; padding: 0.75rem 1rem; width: 100%; }
+        #settingSignature { font-family: 'Dancing Script', cursive; font-size: 1.5rem; }
+        .btn-primary-action { background-color: #0A66C2; color: white; border-radius: 8px; padding: 0.75rem 1.5rem; font-weight: 600; border: none; cursor: pointer; }
+        .btn-primary-action:disabled { background-color: #A0AEC0; cursor: not-allowed; }
+        #image-preview { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; background-color: #e2e8f0; border: 2px solid #cbd5e0; }
+        .message-success { color: #10B981; }
+        .message-error { color: #EF4444; }
+    </style>
+</head>
+<body>
+
+    <aside id="sidebar" class="sidebar-nova7">
+        <div class="sidebar-header">
+            <a href="dashboard.html"><img src="nova-logo.png" alt="nova7 Logo" class="sidebar-logo-img"></a>
+        </div>
+        <nav class="flex-grow">
+            <a href="dashboard.html" class="nav-link-sidebar"><i class="fas fa-tachometer-alt"></i>Dashboard</a>
+            <a href="view-transactions.html" class="nav-link-sidebar"><i class="fas fa-exchange-alt"></i>Transactions</a>
+            <a href="reports.html" class="nav-link-sidebar"><i class="fas fa-chart-pie"></i>Reports</a>
+            <a href="community.html" class="nav-link-sidebar"><i class="fas fa-users"></i>Community</a>
+            <a href="chatbot.html" class="nav-link-sidebar"><i class="fas fa-comments-dollar"></i>Chat Advisor</a>
+            <a href="resources.html" class="nav-link-sidebar"><i class="fas fa-book-open"></i>Resources</a>
+            <a href="settings.html" class="nav-link-sidebar active"><i class="fas fa-cog"></i>Settings</a>
+        </nav>
+        <div class="pb-4">
+            <a href="profile.html" class="nav-link-sidebar"><i class="fas fa-user-circle"></i>Profile</a>
+            <a href="#" id="logoutLink" class="nav-link-sidebar"><i class="fas fa-sign-out-alt"></i>Logout</a>
+        </div>
+    </aside>
+
+    <main class="main-content-area">
+        <header class="flex items-center justify-between mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">Settings</h1>
+        </header>
+        <div class="card-settings max-w-3xl mx-auto">
+            <div class="setting-section">
+                <h3 class="text-xl font-semibold">Profile Information</h3>
+                <div class="space-y-4 mt-4">
+                    <div>
+                        <label for="settingFullName" class="setting-label">Full Name</label>
+                        <input type="text" id="settingFullName" class="form-input-styled" placeholder="Your full name">
+                    </div>
+                    <div>
+                        <label for="settingSignature" class="setting-label">Signature</label>
+                        <input type="text" id="settingSignature" class="form-input-styled" placeholder="Your signature (e.g., your full name)">
+                    </div>
+                    <div>
+                        <label for="settingAddress" class="setting-label">Address (Optional)</label>
+                        <input type="text" id="settingAddress" class="form-input-styled" placeholder="123 Main St, Anytown, USA">
+                    </div>
+                    <div>
+                        <label for="settingDateOfBirth" class="setting-label">Date of Birth (Optional)</label>
+                        <input type="date" id="settingDateOfBirth" class="form-input-styled">
+                    </div>
+                    <div>
+                        <label class="setting-label">Profile Picture</label>
+                        <div class="flex items-center gap-4 mt-2">
+                            <img id="image-preview" src="">
+                            <label for="profilePictureInput" class="cursor-pointer bg-white py-2 px-4 border border-gray-300 rounded-md">
+                                <span>Change Picture</span>
+                                <input id="profilePictureInput" type="file" class="sr-only" accept="image/*">
+                            </label>
+                        </div>
+                    </div>
+                    <div class="pt-4">
+                        <button type="button" id="updateProfileBtn" class="btn-primary-action"><i class="fas fa-save mr-2"></i>Save Profile</button>
+                    </div>
+                </div>
+            </div>
+            <div id="settingsMessage" class="text-sm text-center"></div>
+        </div>
+    </main>
+
+<script>
+    const API_BASE_URL = 'http://127.0.0.1:5005';
+    let pageCsrfToken = null;
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        const authToken = localStorage.getItem('nova7Token');
+        if (!authToken) { window.location.href = 'login.html'; return; }
+        
+        await fetchCsrfToken();
+        await loadCurrentProfileInfo();
+        
+        document.getElementById('profilePictureInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) document.getElementById('image-preview').src = URL.createObjectURL(file);
+        });
+        document.getElementById('updateProfileBtn').addEventListener('click', handleProfileUpdate);
+        document.getElementById('logoutLink')?.addEventListener('click', (e) => { e.preventDefault(); localStorage.clear(); window.location.href = 'login.html'; });
+    });
+
+    async function fetchCsrfToken() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/csrf-token`);
+            const data = await response.json();
+            if (response.ok) pageCsrfToken = data.csrf_token;
+            else throw new Error('Failed to fetch security token.');
+        } catch (error) {
+            displayMessage('Could not initialize page security.', 'error');
+        }
+    }
+
+    async function loadCurrentProfileInfo() {
+        const authToken = localStorage.getItem('nova7Token');
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/profile`, { headers: { 'Authorization': `Bearer ${authToken}` } });
+            const data = await response.json();
+            if (response.ok && data.user) {
+                const user = data.user;
+                document.getElementById('settingFullName').value = user.fullName || '';
+                document.getElementById('settingSignature').value = user.signature || '';
+                document.getElementById('settingAddress').value = user.address || '';
+                document.getElementById('settingDateOfBirth').value = user.dateOfBirth || '';
+                document.getElementById('image-preview').src = user.profilePictureUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.fullName || '?')}&size=80&background=e2e8f0&color=64748b`;
+            } else {
+                 throw new Error(data.message || "Failed to load profile.");
+            }
+        } catch (error) {
+            displayMessage(error.message, 'error');
+        }
+    }
+
+    async function handleProfileUpdate() {
+        const updateBtn = document.getElementById('updateProfileBtn');
+        const authToken = localStorage.getItem('nova7Token');
+        if (!authToken || !pageCsrfToken) {
+            displayMessage('Cannot save. Page is not secure. Please refresh.', 'error');
+            return;
+        }
+
+        updateBtn.disabled = true;
+        updateBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Saving...`;
+        displayMessage('', 'clear');
+        
+        let uploadedPicUrl = null;
+        const file = document.getElementById('profilePictureInput').files[0];
+
+        // Step 1: Upload the picture if a new one is selected
+        if (file) {
+            const formData = new FormData();
+            formData.append('profilePicture', file);
+            try {
+                const uploadResponse = await fetch(`${API_BASE_URL}/api/profile/upload-picture`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` },
+                    body: formData
+                });
+                const uploadData = await uploadResponse.json();
+                if (!uploadResponse.ok) throw new Error(uploadData.message || 'Image upload failed.');
+                uploadedPicUrl = uploadData.url; // Store the new URL from the server
+            } catch (error) {
+                displayMessage(`Upload Error: ${error.message}`, 'error');
+                updateBtn.disabled = false;
+                updateBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Save Profile';
+                return;
+            }
+        }
+
+        // Step 2: Prepare all data (including new picture URL) and update the profile
+        const profileData = {
+            fullName: document.getElementById('settingFullName').value.trim(),
+            signature: document.getElementById('settingSignature').value.trim(),
+            address: document.getElementById('settingAddress').value.trim(),
+            dateOfBirth: document.getElementById('settingDateOfBirth').value
+        };
+
+        if (uploadedPicUrl) {
+            profileData.profilePictureUrl = uploadedPicUrl;
+        }
+
+        try {
+            const updateResponse = await fetch(`${API_BASE_URL}/api/profile/update`, { 
+                method: 'PUT', 
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}`, 'X-CSRF-Token': pageCsrfToken }, 
+                body: JSON.stringify(profileData) 
+            });
+            const updateData = await updateResponse.json();
+            if (!updateResponse.ok) throw new Error(updateData.message || 'Failed to update profile info.');
+            
+            displayMessage('Profile saved successfully!', 'success');
+            localStorage.setItem('nova7User', JSON.stringify(updateData.user)); // Update localStorage with the latest from server
+        } catch (error) {
+            displayMessage(`Save Error: ${error.message}`, 'error');
+        } finally {
+            updateBtn.disabled = false;
+            updateBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Save Profile';
+        }
+    }
+
+    function displayMessage(message, type) {
+        const msgDiv = document.getElementById('settingsMessage');
+        msgDiv.textContent = message;
+        msgDiv.className = `text-sm text-center mt-4 message-${type}`;
+    }
+</script>
+</body>
+</html>

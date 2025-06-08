@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>View Transactions - nova7</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F0F2F5;
+            color: #1a202c;
+        }
+        .sidebar-nova7 {
+            background-color: #004182; 
+            color: #E0F2FE; 
+            width: 260px;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.15);
+            height: 100vh; 
+            position: fixed;
+            top: 0; 
+            left: 0;
+            padding-top: 1.5rem;
+            transition: transform 0.3s ease-in-out;
+            z-index: 40;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 0 1.5rem 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid #0053a0; 
+            margin-bottom: 0.75rem;
+        }
+        .nova7-logo-header {
+            max-height: 36px;
+            width: auto;
+        }
+         .sidebar-logo-img { 
+             max-height: 120px; 
+             width: auto;
+        }
+        .sidebar-nova7 .nav-link-sidebar {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1.5rem; 
+            border-radius: 6px;
+            margin: 0.25rem 1rem; 
+            font-weight: 500;
+            color: #E0F2FE; 
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .sidebar-nova7 .nav-link-sidebar:hover {
+            background-color: #0A66C2; 
+            color: #FFFFFF;
+        }
+        .sidebar-nova7 .nav-link-sidebar.active {
+            background-color: #FFFFFF; 
+            color: #0A66C2; 
+            font-weight: 600;
+        }
+        .sidebar-nova7 .nav-link-sidebar i {
+            width: 20px; 
+            margin-right: 0.75rem; 
+            text-align: center;
+        }
+        .main-content-area {
+            margin-left: 260px; 
+            padding: 2rem; 
+            width: calc(100% - 260px);
+            min-height: 100vh; 
+        }
+        .btn-primary-action {
+            background-color: #0A66C2; 
+            color: white;
+            border-radius: 8px; 
+            padding: 0.625rem 1.25rem; /* 10px 20px */
+            font-weight: 600; 
+            transition: background-color 0.2s;
+            border: none;
+            display: inline-flex; 
+            align-items: center;
+            text-align: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .btn-primary-action:hover {
+            background-color: #004182; 
+        }
+        .btn-primary-action i {
+            margin-right: 0.5rem;
+        }
+        .btn-secondary-outline { 
+            background-color: transparent;
+            color: #0A66C2; 
+            border: 1px solid #0A66C2;
+            border-radius: 8px;
+            padding: 0.625rem 1.25rem; 
+            font-weight: 600;
+            transition: background-color 0.2s, color 0.2s;
+            display: inline-flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        .btn-secondary-outline:hover {
+            background-color: #E0F2FE; 
+            color: #004182;
+        }
+        .btn-secondary-outline i {
+            margin-right: 0.5rem;
+        }
+        .btn-filter { 
+             padding: 0.5rem 1rem; 
+             font-size: 0.875rem;
+        }
+        .form-input-filter, .form-select-filter {
+            border: 1px solid #CBD5E0; 
+            border-radius: 6px;
+            padding: 0.5rem 0.75rem; 
+            font-size: 0.875rem;
+            background-color: #FFFFFF;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+        .form-input-filter:focus, .form-select-filter:focus {
+            border-color: #0A66C2;
+            box-shadow: 0 0 0 1px #0A66C2;
+            outline: none;
+        }
+        .filter-container {
+            background-color: #FFFFFF;
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .table-container {
+            background-color: #FFFFFF;
+            border-radius: 12px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.07);
+            overflow-x: auto; 
+        }
+        .transactions-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .transactions-table th, .transactions-table td {
+            padding: 0.75rem 1rem; 
+            text-align: left;
+            border-bottom: 1px solid #E2E8F0; 
+        }
+        .transactions-table th {
+            background-color: #F8FAFC; 
+            font-weight: 600;
+            font-size: 0.875rem; 
+            color: #4A5568; 
+        }
+        .transactions-table td {
+            font-size: 0.875rem;
+            color: #2D3748; 
+        }
+        .transactions-table tbody tr:hover {
+            background-color: #F7FAFC; 
+        }
+        .text-income { color: #10B981; }
+        .text-expense { color: #EF4444; }
+        .action-icon {
+            color: #718096; 
+            cursor: pointer;
+            margin: 0 0.35rem; 
+            font-size: 0.9rem; 
+        }
+        .action-icon:hover {
+            color: #0A66C2; 
+        }
+
+        .mobile-header { display: none; }
+        @media (max-width: 1024px) { 
+            .filter-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr)); 
+            }
+        }
+        @media (max-width: 768px) {
+            .sidebar-nova7 { transform: translateX(-100%); top: 0; height: 100vh; }
+            .sidebar-nova7.open { transform: translateX(0); }
+            .main-content-area { margin-left: 0; width: 100%; padding-top: calc(60px + 1rem); padding: 1rem;}
+            .desktop-header { display: none; }
+            .mobile-header {
+                display: flex; background-color: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                padding: 0 1rem; height: 60px; align-items: center; justify-content: space-between;
+                position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+            }
+            .transactions-table th, .transactions-table td { font-size: 0.8rem; padding: 0.5rem; }
+            .header-actions { flex-direction: column; align-items: stretch; gap: 0.5rem; } 
+            .header-actions .btn-primary-action, .header-actions .btn-secondary-outline { width: 100%; justify-content: center;}
+            .action-icon { margin: 0 0.2rem; } 
+            .filter-grid {
+                grid-template-columns: repeat(1, minmax(0, 1fr)); 
+            }
+            .filter-buttons {
+                flex-direction: column; 
+                gap: 0.5rem;
+            }
+            .filter-buttons button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+
+    <header class="mobile-header md:hidden">
+        <button id="hamburgerBtnMobile" class="p-2 text-gray-700 hover:text-blue-600">
+            <i class="fas fa-bars text-2xl"></i>
+        </button>
+        <a href="dashboard.html">
+            <img src="nova-logo.png" alt="nova7 Logo" class="nova7-logo-header">
+        </a>
+        <a href="#" id="mobileLogoutLink" class="p-2 text-gray-700 hover:text-blue-600">
+            <i class="fas fa-sign-out-alt text-xl"></i>
+        </a>
+    </header>
+
+    <aside id="sidebar" class="sidebar-nova7">
+        <div class="sidebar-header">
+            <a href="dashboard.html" class="flex items-center">
+                <img src="nova-logo.png" alt="nova7 Logo" class="sidebar-logo-img" 
+                     style="filter: brightness(0) invert(1);"
+                     onerror="this.style.display='none';"> 
+            </a>
+        </div>
+        <nav class="flex-grow">
+            <a href="dashboard.html" class="nav-link-sidebar">
+                <i class="fas fa-tachometer-alt"></i>Dashboard
+            </a>
+            <a href="view-transactions.html" class="nav-link-sidebar active"> 
+                <i class="fas fa-exchange-alt"></i>Transactions
+            </a>
+            <a href="reports.html" class="nav-link-sidebar"> 
+                <i class="fas fa-chart-pie"></i>Reports
+            </a>
+            <a href="community.html" class="nav-link-sidebar">
+                <i class="fas fa-users"></i>Community
+            </a>
+            <a href="chatbot.html" class="nav-link-sidebar">
+                <i class="fas fa-comments-dollar"></i>Chat Advisor
+            </a>
+            <a href="resources.html" class="nav-link-sidebar"> 
+                <i class="fas fa-book-open"></i>Resources
+            </a>
+            <a href="settings.html" class="nav-link-sidebar">
+                <i class="fas fa-cog"></i>Settings
+            </a>
+        </nav>
+        <div class="pb-4"> 
+            <a href="profile.html" class="nav-link-sidebar"> 
+                <i class="fas fa-user-circle"></i>Profile
+            </a>
+            <a href="#" id="sidebarLogoutLink" class="nav-link-sidebar"> 
+                <i class="fas fa-sign-out-alt"></i>Logout
+            </a>
+        </div>
+    </aside>
+
+    <main class="main-content-area">
+        <header class="desktop-header hidden md:flex items-center justify-between mb-6">
+            <h1 class="text-2xl font-semibold text-gray-800">Transactions</h1>
+            <div class="flex items-center space-x-3 header-actions">
+                <button id="downloadTransactionsBtn" class="btn-secondary-outline">
+                    <i class="fas fa-download"></i> Download CSV
+                </button>
+                <a href="add-transaction.html" class="btn-primary-action">
+                    <i class="fas fa-plus"></i> Add New
+                </a>
+            </div>
+        </header>
+         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:hidden header-actions">
+            <h1 class="text-xl font-semibold text-gray-800 mb-2 md:mb-0">Transactions</h1>
+            <div class="flex w-full md:w-auto space-x-0 md:space-x-3 flex-col sm:flex-row gap-2 md:gap-0">
+                 <button id="downloadTransactionsBtnMobile" class="btn-secondary-outline w-full sm:w-auto justify-center">
+                    <i class="fas fa-download"></i> Download CSV
+                </button>
+                <a href="add-transaction.html" class="btn-primary-action w-full sm:w-auto justify-center !px-3 !py-2 text-sm">
+                    <i class="fas fa-plus !mr-1"></i> Add New
+                </a>
+            </div>
+        </div>
+
+        <div class="filter-container">
+            <form id="filterForm" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end filter-grid">
+                <div>
+                    <label for="filterStartDate" class="block text-xs font-medium text-gray-700 mb-1">Start Date</label>
+                    <input type="date" id="filterStartDate" name="start_date" class="form-input-filter w-full">
+                </div>
+                <div>
+                    <label for="filterEndDate" class="block text-xs font-medium text-gray-700 mb-1">End Date</label>
+                    <input type="date" id="filterEndDate" name="end_date" class="form-input-filter w-full">
+                </div>
+                <div>
+                    <label for="filterType" class="block text-xs font-medium text-gray-700 mb-1">Type</label>
+                    <select id="filterType" name="type" class="form-select-filter w-full">
+                        <option value="">All Types</option>
+                        <option value="income">Income</option>
+                        <option value="expense">Expense</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="filterCategory" class="block text-xs font-medium text-gray-700 mb-1">Category</label>
+                    <select id="filterCategory" name="category" class="form-select-filter w-full">
+                        <option value="">All Categories</option>
+                        <option value="Salary">Salary</option>
+                        <option value="Sales">Sales</option>
+                        <option value="Freelance Income">Freelance Income</option>
+                        <option value="Consulting Fee">Consulting Fee</option>
+                        <option value="Rent">Rent</option>
+                        <option value="Utilities">Utilities</option>
+                        <option value="Groceries">Groceries</option>
+                        <option value="Transport">Transport</option>
+                        <option value="Office Supplies">Office Supplies</option>
+                        <option value="Software Subscription">Software Subscription</option>
+                        <option value="Marketing">Marketing</option>
+                        <option value="Other Income">Other Income</option>
+                        <option value="Other Expense">Other Expense</option>
+                    </select>
+                </div>
+                <div class="lg:col-span-2"> 
+                    <label for="filterDescription" class="block text-xs font-medium text-gray-700 mb-1">Search Description</label>
+                    <input type="text" id="filterDescription" name="description_search" class="form-input-filter w-full" placeholder="Enter keywords...">
+                </div>
+                <div class="lg:col-span-2 flex space-x-2 items-center filter-buttons"> 
+                    <button type="submit" id="applyFiltersBtn" class="btn-primary-action btn-filter w-full lg:w-auto">
+                        <i class="fas fa-filter mr-1"></i>Apply Filters
+                    </button>
+                    <button type="button" id="clearFiltersBtn" class="btn-secondary-outline btn-filter w-full lg:w-auto">
+                        <i class="fas fa-times mr-1"></i>Clear Filters
+                    </button>
+                </div>
+            </form>
+        </div>
+        <div id="transactionsMessage" class="text-sm text-center my-4"></div>
+
+        <div class="table-container">
+            <table class="transactions-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Description</th>
+                        <th>Category</th>
+                        <th>Type</th>
+                        <th class="text-right">Amount</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="transactionTableBody">
+                    <tr>
+                        <td colspan="6" class="text-center text-gray-500 py-8">Loading transactions...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <script>
+        let csrfToken = null; // Store CSRF token globally for this page
+
+        // --- Auth Check, Sidebar, Logout (Keep from previous scripts) ---
+        document.addEventListener('DOMContentLoaded', async function() { // Made async for CSRF
+            const authToken = localStorage.getItem('nova7Token'); // Renamed to avoid conflict
+            const userString = localStorage.getItem('nova7User');
+
+            console.log("View Transactions: Auth Token from localStorage:", authToken);
+            console.log("View Transactions: User string from localStorage:", userString);
+
+            if (!authToken || !userString || authToken === "undefined" || authToken === "null") {
+                console.log("View Transactions: Auth Token or userString missing/invalid. Redirecting to login.");
+                window.location.href = 'login.html';
+                return;
+            }
+
+            try {
+                const user = JSON.parse(userString);
+                const userName = user.fullName || "User";
+                // Welcome message update can be added if there's a place for it
+            } catch(e) {
+                console.error("View Transactions: Error parsing user data for welcome", e);
+                handleLogout(); // If user data is corrupted, logout
+                return;
+            }
+
+            // Fetch initial CSRF token for the page
+            try {
+                const csrfResponse = await fetch("http://127.0.0.1:5005/api/csrf-token", {
+                    method: "GET",
+                    credentials: "include"
+                });
+                const csrfData = await csrfResponse.json();
+                if (csrfResponse.ok && csrfData.status === "success" && csrfData.csrf_token) {
+                    csrfToken = csrfData.csrf_token;
+                    console.log("View Transactions: CSRF token fetched successfully:", csrfToken);
+                } else {
+                    throw new Error(csrfData.message || "Failed to fetch initial CSRF token for transactions page.");
+                }
+            } catch (error) {
+                console.error("View Transactions: CSRF token fetch error on page load:", error);
+                if(transactionsMessageDiv) {
+                    transactionsMessageDiv.textContent = 'Security initialization failed. Please refresh.';
+                    transactionsMessageDiv.className = 'text-sm text-center my-4 text-red-500';
+                }
+                // Potentially disable form submissions or actions if CSRF is critical for them
+            }
+            
+            fetchTransactions(); // Fetch transactions on initial load
+        });
+
+        function handleLogout() { 
+            console.log("View Transactions: Logging out and redirecting to login.html");
+            localStorage.removeItem('nova7Token');
+            localStorage.removeItem('nova7User');
+            window.location.href = 'login.html';
+        }
+        const sidebarLogoutLink = document.getElementById('sidebarLogoutLink');
+        if (sidebarLogoutLink) sidebarLogoutLink.addEventListener('click', function(e){ e.preventDefault(); handleLogout(); });
+        const mobileLogoutLink = document.getElementById('mobileLogoutLink');
+        if (mobileLogoutLink) mobileLogoutLink.addEventListener('click', function(e){ e.preventDefault(); handleLogout(); });
+        
+        const hamburgerBtnMobile = document.getElementById('hamburgerBtnMobile');
+        const sidebar = document.getElementById('sidebar');
+        if (hamburgerBtnMobile && sidebar) {
+            hamburgerBtnMobile.addEventListener('click', function(e) { e.stopPropagation(); sidebar.classList.toggle('open'); });
+        }
+        document.addEventListener('click', function(e) {
+            if (sidebar && sidebar.classList.contains('open') && !sidebar.contains(e.target) && (!hamburgerBtnMobile || !hamburgerBtnMobile.contains(e.target))) {
+                sidebar.classList.remove('open');
+            }
+        });
+        // --- End of standard setup ---
+
+        const transactionTableBody = document.getElementById('transactionTableBody');
+        const transactionsMessageDiv = document.getElementById('transactionsMessage');
+        const filterForm = document.getElementById('filterForm');
+        const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+
+        async function fetchTransactions(filters = {}) {
+            const authToken = localStorage.getItem('nova7Token'); // Use distinct name
+            if (!authToken || authToken === "undefined" || authToken === "null") { // Check again before fetch
+                console.log("View Transactions (fetchTransactions): Auth Token missing. Logging out.");
+                handleLogout(); 
+                return;
+            }
+
+            transactionTableBody.innerHTML = '<tr><td colspan="6" class="text-center text-gray-500 py-8">Loading transactions...</td></tr>';
+            if(transactionsMessageDiv) transactionsMessageDiv.textContent = '';
+
+            const queryParams = new URLSearchParams();
+            for (const key in filters) {
+                if (filters[key]) { 
+                    queryParams.append(key, filters[key]);
+                }
+            }
+            const queryString = queryParams.toString();
+            const apiUrl = `http://127.0.0.1:5005/api/transactions${queryString ? '?' + queryString : ''}`;
+            
+            // --- MODIFICATION START: Log token and headers before fetch ---
+            console.log("View Transactions (fetchTransactions): Using Auth Token:", authToken);
+            const headers = {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+                // X-CSRF-Token is not needed for GET requests by default in your backend setup
+            };
+            console.log("View Transactions (fetchTransactions): Sending headers:", JSON.stringify(headers));
+            // --- MODIFICATION END ---
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'GET',
+                    headers: headers
+                });
+                
+                const responseText = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                } catch (e) {
+                    console.error("View Transactions (fetchTransactions): Failed to parse response as JSON. Response text:", responseText);
+                    transactionTableBody.innerHTML = `<tr><td colspan="6" class="text-center text-red-500 py-8">Error: Received invalid data from server.</td></tr>`;
+                    return;
+                }
+
+                console.log("View Transactions (fetchTransactions): API response status:", response.status);
+                console.log("View Transactions (fetchTransactions): API response data:", data);
+
+                if (response.ok && data.status === 'success') {
+                    renderTransactions(data.transactions);
+                } else {
+                    transactionTableBody.innerHTML = `<tr><td colspan="6" class="text-center text-red-500 py-8">Error: ${data.message || 'Could not load transactions.'}</td></tr>`;
+                    console.error("View Transactions (fetchTransactions): Error fetching. Status:", response.status, "Message:", data.message);
+                    
+                    // --- MODIFICATION START: Temporarily do NOT logout on 422 to inspect ---
+                    if (response.status === 401) { 
+                        console.log("View Transactions (fetchTransactions): Received 401, logging out.");
+                        handleLogout();
+                    } else if (response.status === 422) {
+                         console.log("View Transactions (fetchTransactions): Received 422. Token was:", authToken, "Backend message:", data.message);
+                         if(transactionsMessageDiv) {
+                            transactionsMessageDiv.textContent = `Error ${response.status}: ${data.message || 'Could not process request to fetch transactions.'}`;
+                            transactionsMessageDiv.className = 'text-sm text-center my-4 text-red-500';
+                         }
+                         // NOT calling handleLogout() for 422 here for debugging.
+                    }
+                    // --- MODIFICATION END ---
+                }
+            } catch (error) {
+                console.error("View Transactions (fetchTransactions): Network error:", error);
+                transactionTableBody.innerHTML = '<tr><td colspan="6" class="text-center text-red-500 py-8">Failed to connect to server. Please try again.</td></tr>';
+            }
+        }
+
+        function renderTransactions(transactions) {
+            // ... (renderTransactions logic remains the same) ...
+            transactionTableBody.innerHTML = ''; 
+            if (transactions.length === 0) {
+                transactionTableBody.innerHTML = '<tr><td colspan="6" class="text-center text-gray-500 py-8">No transactions found for the selected criteria. <a href="add-transaction.html" class="text-blue-600 hover:underline">Add a new one?</a></td></tr>';
+                return;
+            }
+
+            transactions.forEach(tx => {
+                const row = transactionTableBody.insertRow();
+                row.innerHTML = `
+                    <td>${tx.date}</td>
+                    <td class="truncate max-w-xs" title="${tx.description || ''}">${tx.description || 'N/A'}</td>
+                    <td>${tx.category}</td>
+                    <td><span class="${tx.type === 'income' ? 'text-income' : 'text-expense'} font-semibold">${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}</span></td>
+                    <td class="text-right ${tx.type === 'income' ? 'text-income' : 'text-expense'} font-semibold">${tx.type === 'income' ? '+' : '-'}$${parseFloat(tx.amount).toFixed(2)}</td>
+                    <td class="text-center">
+                        <a href="edit-transaction.html?id=${tx.id}" class="action-icon" title="Edit"><i class="fas fa-edit"></i></a>
+                        <a href="print-receipt.html?id=${tx.id}" class="action-icon" title="Print Receipt" target="_blank"><i class="fas fa-print"></i></a>
+                        <button class="action-icon" title="Delete" onclick="deleteTransaction(${tx.id})"><i class="fas fa-trash-alt"></i></button>
+                    </td>
+                `;
+            });
+        }
+        
+        if (filterForm) {
+            filterForm.addEventListener('submit', function(event) {
+                event.preventDefault();
+                const formData = new FormData(filterForm);
+                const filters = {};
+                for (const [key, value] of formData.entries()) {
+                    if (value) { filters[key] = value; }
+                }
+                fetchTransactions(filters);
+            });
+        }
+
+        if (clearFiltersBtn && filterForm) {
+            clearFiltersBtn.addEventListener('click', function() {
+                filterForm.reset();
+                fetchTransactions(); 
+            });
+        }
+
+        async function downloadTransactionsCSV() {
+            const authToken = localStorage.getItem('nova7Token');
+            if (!authToken || authToken === "undefined" || authToken === "null") { handleLogout(); return; }
+            
+            console.log("View Transactions (downloadCSV): Using Auth Token:", authToken);
+            const headers = { 'Authorization': `Bearer ${authToken}` };
+            console.log("View Transactions (downloadCSV): Sending headers:", JSON.stringify(headers));
+
+            // ... (rest of download logic remains the same, using port 5005) ...
+            if(transactionsMessageDiv) {
+                transactionsMessageDiv.textContent = 'Preparing download...';
+                transactionsMessageDiv.className = 'text-sm text-center my-4 text-gray-600';
+            }
+            try {
+                const response = await fetch('http://127.0.0.1:5005/api/transactions/download', { headers: headers });
+                if (response.ok) {
+                    // ... (blob and download link creation) ...
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none'; a.href = url; a.download = 'nova7_transactions.csv';
+                    document.body.appendChild(a); a.click();
+                    window.URL.revokeObjectURL(url); a.remove();
+                    if(transactionsMessageDiv) {
+                        transactionsMessageDiv.textContent = 'Download started.';
+                        transactionsMessageDiv.className = 'text-sm text-center my-4 text-green-600';
+                        setTimeout(() => { transactionsMessageDiv.textContent = ''; }, 3000);
+                    }
+                } else {
+                    const errorData = await response.json();
+                    if(transactionsMessageDiv) {
+                        transactionsMessageDiv.textContent = `Download failed: ${errorData.message || 'Server error'}`;
+                        transactionsMessageDiv.className = 'text-sm text-center my-4 text-red-500';
+                    }
+                    if (response.status === 401 || response.status === 422) handleLogout();
+                }
+            } catch (error) {
+                console.error("Download error:", error);
+                if(transactionsMessageDiv) {
+                    transactionsMessageDiv.textContent = 'Download failed. Please check your connection.';
+                    transactionsMessageDiv.className = 'text-sm text-center my-4 text-red-500';
+                }
+            }
+        }
+        const downloadBtn = document.getElementById('downloadTransactionsBtn');
+        if (downloadBtn) downloadBtn.addEventListener('click', downloadTransactionsCSV);
+        const downloadBtnMobile = document.getElementById('downloadTransactionsBtnMobile');
+        if (downloadBtnMobile) downloadBtnMobile.addEventListener('click', downloadTransactionsCSV);
+
+        async function deleteTransaction(transactionId) {
+            const authToken = localStorage.getItem('nova7Token');
+            if (!authToken || authToken === "undefined" || authToken === "null") { handleLogout(); return; }
+            
+            // --- MODIFICATION START: Fetch and use CSRF token for DELETE ---
+            if (!csrfToken) { // Check if global csrfToken is available
+                console.warn("View Transactions (deleteTransaction): CSRF token not available. Attempting to fetch.");
+                 try {
+                    const csrfResponse = await fetch("http://127.0.0.1:5005/api/csrf-token", {method: "GET", credentials: "include"});
+                    const csrfData = await csrfResponse.json();
+                    if (csrfResponse.ok && csrfData.status === "success") csrfToken = csrfData.csrf_token;
+                    else {
+                        if(transactionsMessageDiv) transactionsMessageDiv.textContent = 'Security error. Cannot delete.';
+                        return;
+                    }
+                } catch (e) {
+                    if(transactionsMessageDiv) transactionsMessageDiv.textContent = 'Security error. Cannot delete.';
+                    return;
+                }
+            }
+            console.log("View Transactions (deleteTransaction): Using Auth Token:", authToken);
+            console.log("View Transactions (deleteTransaction): Using CSRF Token:", csrfToken);
+            const headers = { 
+                'Authorization': `Bearer ${authToken}`,
+                'X-CSRF-Token': csrfToken, // Add CSRF token for DELETE
+                'Content-Type': 'application/json' // Though not strictly needed for DELETE with no body sometimes
+            };
+            console.log("View Transactions (deleteTransaction): Sending headers:", JSON.stringify(headers));
+            // --- MODIFICATION END ---
+
+
+            if (confirm(`Are you sure you want to delete this transaction?`)) {
+                // ... (rest of delete logic remains same, using port 5005) ...
+                if(transactionsMessageDiv) {
+                    transactionsMessageDiv.textContent = 'Deleting...';
+                    transactionsMessageDiv.className = 'text-sm text-center my-4 text-gray-600';
+                }
+                try {
+                    const response = await fetch(`http://127.0.0.1:5005/api/transactions/${transactionId}`, {
+                        method: 'DELETE',
+                        headers: headers // Use the headers object with CSRF token
+                    });
+                    const data = await response.json(); // Attempt to parse JSON even for errors
+                    if (response.ok && data.status === 'success') {
+                        if(transactionsMessageDiv){
+                             transactionsMessageDiv.textContent = data.message || 'Transaction deleted successfully!';
+                             transactionsMessageDiv.className = 'text-sm text-center my-4 text-green-600';
+                        }
+                        fetchTransactions(); 
+                    } else {
+                         if(transactionsMessageDiv){
+                            transactionsMessageDiv.textContent = `Error: ${data.message || 'Could not delete transaction.'}`;
+                            transactionsMessageDiv.className = 'text-sm text-center my-4 text-red-500';
+                         }
+                        // --- MODIFICATION START: Temporarily do NOT logout on 422 to inspect ---
+                        if (response.status === 401) { 
+                            console.log("View Transactions (deleteTransaction): Received 401, logging out.");
+                            handleLogout();
+                        } else if (response.status === 422) {
+                            console.log("View Transactions (deleteTransaction): Received 422. Token was:", authToken, "Backend message:", data.message);
+                            // NOT calling handleLogout() here for debugging.
+                            if(transactionsMessageDiv) transactionsMessageDiv.textContent = `Error ${response.status}: ${data.message || 'Could not process delete request.'}`;
+                        }
+                        // --- MODIFICATION END ---
+                    }
+                } catch (error) {
+                     console.error("Delete error:", error);
+                     if(transactionsMessageDiv){
+                        transactionsMessageDiv.textContent = 'Delete failed. Please check your connection.';
+                        transactionsMessageDiv.className = 'text-sm text-center my-4 text-red-500';
+                     }
+                }
+            }
+        }
+        
+        console.log("View Transactions page loaded and scripts attached.");
+    </script>
+
+</body>
+</html>

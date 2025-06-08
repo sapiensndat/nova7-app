@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "nova7-project",
+  "private_key_id": "071b51333a37b5ce1aecebb78871a61c821bddfb",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCth8Nm1Njo61O7\ngwih4D9Z9kEcAu8gN7s2OvpKPjxH+P/NqIYoMiKES43pXHgmh+MsWu48vwPNnOky\nudIT/hEgOJO3yfSo2cl0PeYJ8/eSqodYFl+mnG1Fm/5Uc/b+QYRW3Jmb8wOlWnrX\nGen2EpaIiWbjcn2+dOkQbssduaXNrOw1YqoX2bTRGpUWEIEuxCn0etX+z5/9zQ4e\n67w9G1spLnfJVVyAHPDuYqrCXx3t3QdTjvGmVYL2OreT+zqiosdCF4d7c2eJiA7T\n6jhAo6uD+rcIbUMzgPle8GODL6Ycdl4EvP4knKkFB8mSDq+P5AWnoEcqL3FDzrPm\ndhxbBiadAgMBAAECggEAJQhOGQnfaIWgDuo9013p5yb4aiPuKC/8kewwMdvqPWnU\nHW2Tg8x/NUByfpSvR3nEb1jQcsJI635K/fpN7NpRiVDJpXVB8y7XISl8iC86bGBc\nFd5gd0v2vd42foto8IXG2kqltXQ9GPKgOHtdRJhe67B29p8eWqDUhB9A1Y0i5ytf\npPy7/SYscO+0FSrycDYp4+e0tqSskzCS2Etux4mHGCHUgnEXyC4f6SV6jCZCN8/i\nFB2rLjvPdZYEOjLnSL+/DW7L1a6w8K0wG7yVy0tTZsgsr3rHtV1SNTIGxmE9+ZYS\nPzecj9qvuv6glKvPQC9TlLTFJfZ7IiKumEB/IxBzwQKBgQDpqSF0Eqv6ZKzjsxYB\nHp3if6sLu/pl+xgnigQTUR6IVraiZrmGm8zD506vJJBAibHTX4qQKUvdWtR3FDzW\nOejO5kmBF3pmBN7umA9L/Yv8ZmSf+iMAKFbAJt+qptLZuxZG7xQ3Jae2OefTK7HW\nX0bEcdovUwfxQwHZIw9whSw3eQKBgQC+Hu+qw/Csa0EfTfu3LG+/5T4Ky22//5xM\nqmOFk8sPx98X0uSSU6PS1rrib9moTu8q8pgSDP+7U57jU93ZFdO1kGBvFKuILJRR\ndGbiTpEjA7+vwRfw0b6j7AaxKmkXmD/87EIYiCQSEAO+13lw0guPHIIBPWhGs0SM\nqUeQykELRQKBgQDY1CpHHEybP3Fwm29/+nlpBjAj43ypxijUCC9f/ZbnzhANBGaF\nk26hHLTXsoZqXVy3WaGrxaaw8ujW1+Dcq0BvPyRWtwLOSRbXMiR/z/lnb11RVz3D\nl6tpBKnqIoTnp8U0bgfEZR0M7Q9D1vhghmmVQlHGOLbWG+hLJ03cjLhLgQKBgQCk\nhFKye4GdQeaFd071j/9Xl8DbSHO9LCyNbvhV07FpA3T6waTHNpdR0DzByzYW3c86\nY9jR7euxp0ebwav8uVWNDNVV6hYQ7TqfTdHlzUTsfsb2CGp2GpoUcR7NWjy8jSP5\n8luzrMNB2hfTodPVm/0ipvGcrw23+FK+QZHLKimk3QKBgEZx0H67AobYxrBJskzA\n2/nSTGrjNLqgM4iWaCz0uy3SynwXiOlOZ7lGE9wONwNN2az41JCHg33UgsAGnZhG\n0JZm7mElleN1FIQIs/fJKoQ6JYFNRKs3ecfGsSQ1zqWDZVLGdQScc+8Z06fgQoFj\nSF76oe6QNfk4XzOu/FIyJgeL\n-----END PRIVATE KEY-----\n",
+  "client_email": "nova7-storage-alt@nova7-project.iam.gserviceaccount.com",
+  "client_id": "112166517093524807363",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/nova7-storage-alt%40nova7-project.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

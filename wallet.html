@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wallet - nova7</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://js.stripe.com/v3/"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F0F2F5;
+            color: #1a202c;
+        }
+        /* Sidebar Styles */
+        .sidebar-nova7 {
+            background-color: #004182;
+            color: #E0F2FE;
+            width: 260px;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.15);
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+            padding-top: 1.5rem;
+            transition: transform 0.3s ease-in-out;
+            z-index: 40;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 0 1.5rem 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid #0053a0;
+            margin-bottom: 0.75rem;
+        }
+        .nova7-logo-header {
+            max-height: 36px;
+            width: auto;
+        }
+        .sidebar-logo-img {
+            max-height: 120px;
+            width: auto;
+        }
+        .sidebar-nova7 .nav-link-sidebar {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            margin: 0.25rem 1rem;
+            font-weight: 500;
+            color: #E0F2FE;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .sidebar-nova7 .nav-link-sidebar:hover {
+            background-color: #0A66C2;
+            color: #FFFFFF;
+        }
+        .sidebar-nova7 .nav-link-sidebar.active {
+            background-color: #FFFFFF;
+            color: #0A66C2;
+            font-weight: 600;
+        }
+        .sidebar-nova7 .nav-link-sidebar i {
+            width: 20px;
+            margin-right: 0.75rem;
+            text-align: center;
+        }
+        /* Main Content Styles */
+        .main-content-area {
+            margin-left: 260px;
+            padding: 2rem;
+            width: calc(100% - 260px);
+            min-height: 100vh;
+        }
+        .card-styled {
+            background-color: #FFFFFF;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+            padding: 2rem;
+        }
+        .form-label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 0.5rem;
+        }
+        .form-input, .form-select {
+            width: 100%;
+            border: 1px solid #D1D5DB;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            font-size: 0.95rem;
+            color: #1D2939;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: #0A66C2;
+            box-shadow: 0 0 0 2px rgba(10, 102, 194, 0.2);
+        }
+        .form-input.border-red-500, .form-select.border-red-500 {
+            border-color: #EF4444 !important;
+            box-shadow: 0 0 0 1px #EF4444 !important;
+        }
+        .btn-primary-action {
+            background-color: #0A66C2;
+            color: white;
+            border-radius: 8px;
+            padding: 0.75rem 1.5rem;
+            font-weight: 600;
+            transition: background-color 0.2s, box-shadow 0.2s, opacity 0.2s;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
+            cursor: pointer;
+        }
+        .btn-primary-action:hover {
+            background-color: #004182;
+            box-shadow: 0 2px 4px 0 rgba(0,0,0,0.1);
+        }
+        .btn-primary-action:disabled {
+            background-color: #A0AEC0;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        .btn-secondary-action {
+            background-color: #F3F4F6;
+            color: #374151;
+            border: 1px solid #D1D5DB;
+            border-radius: 8px;
+            padding: 0.75rem 1.5rem;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .btn-secondary-action:hover {
+            background-color: #E5E7EB;
+        }
+        .table-container {
+            background-color: #FFFFFF;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            overflow-x: auto;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .data-table th, .data-table td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid #E2E8F0;
+        }
+        .data-table th {
+            background-color: #F8FAFC;
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: #4A5568;
+        }
+        .data-table td {
+            font-size: 0.875rem;
+            color: #2D3748;
+        }
+        .data-table tbody tr:hover {
+            background-color: #F7FAFC;
+        }
+        .message-success { color: #10B981; }
+        .message-error { color: #EF4444; }
+        .mobile-header { display: none; }
+        @media (max-width: 768px) {
+            .sidebar-nova7 { transform: translateX(-100%); top: 0; height: 100vh; }
+            .sidebar-nova7.open { transform: translateX(0); }
+            .main-content-area { margin-left: 0; width: 100%; padding-top: calc(60px + 1rem); padding: 1rem; }
+            .desktop-header { display: none; }
+            .mobile-header {
+                display: flex;
+                background-color: #FFFFFF;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+                padding: 0 1rem;
+                height: 60px;
+                align-items: center;
+                justify-content: space-between;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                z-index: 50;
+            }
+            .card-styled { padding: 1.5rem; }
+            .data-table th, .data-table td { padding: 0.5rem; font-size: 0.8rem; }
+            .grid-cols-1.md:grid-cols-2 { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+    <header class="mobile-header md:hidden">
+        <button id="hamburgerBtnMobile" class="p-2 text-gray-700 hover:text-blue-600">
+            <i class="fas fa-bars text-2xl"></i>
+        </button>
+        <a href="dashboard.html">
+            <img src="nova-logo.png" alt="nova7 Logo" class="nova7-logo-header">
+        </a>
+        <a href="#" id="mobileLogoutLink" class="p-2 text-gray-700 hover:text-blue-600">
+            <i class="fas fa-sign-out-alt text-xl"></i>
+        </a>
+    </header>
+
+    <aside id="sidebar" class="sidebar-nova7">
+        <div class="sidebar-header">
+            <a href="dashboard.html" class="flex items-center">
+                <img src="nova-logo.png" alt="nova7 Logo" class="sidebar-logo-img" 
+                     style="filter: brightness(0) invert(1);" onerror="this.style.display='none';">
+            </a>
+        </div>
+        <nav class="flex-grow">
+            <a href="dashboard.html" class="nav-link-sidebar">
+                <i class="fas fa-tachometer-alt"></i>Dashboard
+            </a>
+            <a href="view-transactions.html" class="nav-link-sidebar">
+                <i class="fas fa-exchange-alt"></i>Transactions
+            </a>
+            <a href="reports.html" class="nav-link-sidebar">
+                <i class="fas fa-chart-pie"></i>Reports
+            </a>
+            <a href="community.html" class="nav-link-sidebar">
+                <i class="fas fa-users"></i>Community & Lending
+            </a>
+            <a href="chatbot.html" class="nav-link-sidebar">
+                <i class="fas fa-comments-dollar"></i>Chat Advisor
+            </a>
+            <a href="resources.html" class="nav-link-sidebar">
+                <i class="fas fa-book-open"></i>Resources
+            </a>
+            <a href="settings.html" class="nav-link-sidebar">
+                <i class="fas fa-cog"></i>Settings
+            </a>
+            <a href="wallet.html" class="nav-link-sidebar active">
+                <i class="fas fa-wallet"></i>Wallet
+            </a>
+        </nav>
+        <div class="pb-4">
+            <a href="profile.html" class="nav-link-sidebar">
+                <i class="fas fa-user-circle"></i>Profile
+            </a>
+            <a href="#" id="sidebarLogoutLink" class="nav-link-sidebar">
+                <i class="fas fa-sign-out-alt"></i>Logout
+            </a>
+        </div>
+    </aside>
+
+    <main class="main-content-area">
+        <header class="desktop-header hidden md:flex items-center justify-between mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">Wallet</h1>
+            <div class="flex items-center space-x-3">
+                <span id="desktopUserWelcome" class="text-sm text-gray-700">Welcome, User!</span>
+            </div>
+        </header>
+        <h1 class="text-2xl font-bold text-gray-800 mb-6 md:hidden">Wallet</h1>
+
+        <div class="card-styled mb-8">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">Wallet Balance</h2>
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <p class="text-gray-600">Current Balance</p>
+                    <p id="walletBalance" class="text-2xl font-bold text-gray-800">$0.00</p>
+                </div>
+                <div class="space-x-3">
+                    <button id="depositBtn" class="btn-primary-action">
+                        <i class="fas fa-plus-circle"></i>Deposit
+                    </button>
+                    <button id="withdrawBtn" class="btn-secondary-action">
+                        <i class="fas fa-minus-circle"></i>Withdraw
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="depositFormContainer" class="card-styled mb-8 hidden">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">Deposit Funds</h2>
+            <form id="depositForm" class="space-y-6">
+                <div>
+                    <label for="depositAmount" class="form-label">Deposit Amount (USD)</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <span class="text-gray-500 sm:text-sm">$</span>
+                        </div>
+                        <input type="number" id="depositAmount" name="amount" class="form-input pl-7" placeholder="e.g., 100.00" required min="1" step="0.01">
+                    </div>
+                    <p id="depositAmountError" class="text-xs text-red-500 mt-1 hidden">Amount must be at least $1.</p>
+                </div>
+                <div id="cardElement" class="form-input p-3"></div>
+                <div id="cardErrors" class="text-sm text-red-500"></div>
+                <div class="flex justify-end space-x-4">
+                    <button type="button" id="cancelDepositBtn" class="btn-secondary-action">Cancel</button>
+                    <button type="submit" id="submitDepositBtn" class="btn-primary-action">Confirm Deposit</button>
+                </div>
+            </form>
+            <div id="depositMessage" class="text-sm mt-3"></div>
+        </div>
+
+        <div id="withdrawFormContainer" class="card-styled mb-8 hidden">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">Request Withdrawal</h2>
+            <form id="withdrawForm" class="space-y-6">
+                <div>
+                    <label for="withdrawAmount" class="form-label">Withdrawal Amount (USD)</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <span class="text-gray-500 sm:text-sm">$</span>
+                        </div>
+                        <input type="number" id="withdrawAmount" name="amount" class="form-input pl-7" placeholder="e.g., 50.00" required min="1" step="0.01">
+                    </div>
+                    <p id="withdrawAmountError" class="text-xs text-red-500 mt-1 hidden">Amount must be at least $1 and not exceed your balance.</p>
+                </div>
+                <div>
+                    <label for="paymentMethod" class="form-label">Payment Method</label>
+                    <select id="paymentMethod" name="payment_method" class="form-select" required>
+                        <option value="">Select a payment method...</option>
+                        <option value="bank_transfer">Bank Transfer</option>
+                        <option value="mobile_money">Mobile Money</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="paymentDetails" class="form-label">Payment Details</label>
+                    <input type="text" id="paymentDetails" name="payment_details" class="form-input" placeholder="e.g., Bank Account Number or Mobile Number" required>
+                    <p id="paymentDetailsError" class="text-xs text-red-500 mt-1 hidden">Please provide valid payment details.</p>
+                </div>
+                <div class="flex justify-end space-x-4">
+                    <button type="button" id="cancelWithdrawBtn" class="btn-secondary-action">Cancel</button>
+                    <button type="submit" id="submitWithdrawBtn" class="btn-primary-action">Request Withdrawal</button>
+                </div>
+            </form>
+            <div id="withdrawMessage" class="text-sm mt-3"></div>
+        </div>
+
+        <div class="card-styled">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">Transaction History</h2>
+            <div id="transactionMessage" class="text-sm mb-3"></div>
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transactionTableBody">
+                        <tr><td colspan="4" class="text-center py-4 text-gray-500">Loading transactions...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const API_BASE_URL = 'http://127.0.0.1:5005';
+        let stripe = null;
+        let cardElement = null;
+    
+        document.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('nova7Token');
+            if (!token) { window.location.href = 'login.html'; return; }
+    
+            // Initialize Stripe
+            stripe = Stripe('YOUR_STRIPE_PUBLISHABLE_KEY'); // <-- IMPORTANT: Replace with your actual Stripe Publishable Key from .env
+            const elements = stripe.elements();
+            cardElement = elements.create('card', { style: { base: { fontSize: '16px' } } });
+            cardElement.mount('#cardElement');
+    
+            await fetchWalletBalance();
+            await fetchTransactionHistory();
+            
+            // --- Event Listeners ---
+            document.getElementById('depositBtn').addEventListener('click', () => {
+                document.getElementById('depositFormContainer').classList.remove('hidden');
+                document.getElementById('withdrawFormContainer').classList.add('hidden');
+            });
+            document.getElementById('withdrawBtn').addEventListener('click', () => {
+                document.getElementById('withdrawFormContainer').classList.remove('hidden');
+                document.getElementById('depositFormContainer').classList.add('hidden');
+            });
+            document.getElementById('cancelDepositBtn').addEventListener('click', () => document.getElementById('depositFormContainer').classList.add('hidden'));
+            document.getElementById('cancelWithdrawBtn').addEventListener('click', () => document.getElementById('withdrawFormContainer').classList.add('hidden'));
+            document.getElementById('depositForm').addEventListener('submit', handleDeposit);
+            document.getElementById('withdrawForm').addEventListener('submit', handleWithdrawal);
+        });
+    
+        async function fetchWalletBalance() {
+            const token = localStorage.getItem('nova7Token');
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/wallet/balance`, { headers: { 'Authorization': `Bearer ${token}` } });
+                const data = await response.json();
+                document.getElementById('walletBalance').textContent = response.ok ? `$${data.balance.toFixed(2)}` : 'Error';
+            } catch (error) {
+                console.error('Error fetching balance:', error);
+                document.getElementById('walletBalance').textContent = 'Error';
+            }
+        }
+    
+        async function fetchTransactionHistory() {
+            const token = localStorage.getItem('nova7Token');
+            const tableBody = document.getElementById('transactionTableBody');
+            tableBody.innerHTML = '<tr><td colspan="4" class="text-center py-4">Loading...</td></tr>';
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/transactions`, { headers: { 'Authorization': `Bearer ${token}` } });
+                const data = await response.json();
+                tableBody.innerHTML = ''; // Clear loading message
+                if (response.ok && data.transactions.length > 0) {
+                    data.transactions.forEach(tx => {
+                        const row = tableBody.insertRow();
+                        row.innerHTML = `
+                            <td>${new Date(tx.date).toLocaleDateString()}</td>
+                            <td>${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}</td>
+                            <td class="${tx.type === 'income' ? 'text-green-600' : 'text-red-600'}">$${tx.amount.toFixed(2)}</td>
+                            <td>Completed</td>
+                        `;
+                    });
+                } else {
+                    tableBody.innerHTML = '<tr><td colspan="4" class="text-center py-4">No transactions found.</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error fetching transactions:', error);
+                tableBody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-red-500">Failed to load transactions.</td></tr>';
+            }
+        }
+    
+        async function handleDeposit(event) {
+            event.preventDefault();
+            const submitBtn = document.getElementById('submitDepositBtn');
+            const messageDiv = document.getElementById('depositMessage');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = 'Processing...';
+            messageDiv.textContent = '';
+    
+            try {
+                const token = localStorage.getItem('nova7Token');
+                const amount = parseFloat(document.getElementById('depositAmount').value);
+                if (!amount || amount < 1) throw new Error("Minimum deposit is $1.00");
+    
+                // 1. Create a Payment Intent on your server
+                const intentResponse = await fetch(`${API_BASE_URL}/api/wallet/deposit/create-intent`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ amount: Math.round(amount * 100) }) // Send amount in cents
+                });
+                const intentData = await intentResponse.json();
+                if (!intentResponse.ok) throw new Error(intentData.message || "Could not create payment.");
+    
+                // 2. Confirm the payment with Stripe.js on the client
+                const { paymentIntent, error } = await stripe.confirmCardPayment(intentData.clientSecret, {
+                    payment_method: { card: cardElement }
+                });
+    
+                if (error) throw new Error(error.message);
+                if (paymentIntent.status !== 'succeeded') throw new Error("Payment not successful.");
+                
+                messageDiv.className = 'text-sm mt-3 message-success';
+                messageDiv.textContent = 'Deposit successful!';
+                await fetchWalletBalance();
+                await fetchTransactionHistory();
+            } catch (error) {
+                messageDiv.className = 'text-sm mt-3 message-error';
+                messageDiv.textContent = error.message;
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = 'Confirm Deposit';
+            }
+        }
+    
+        async function handleWithdrawal(event) {
+            event.preventDefault();
+            // Add withdrawal logic here
+            alert("Withdrawal functionality not yet connected to backend.");
+        }
+    </script>
+</body>
+</html>
