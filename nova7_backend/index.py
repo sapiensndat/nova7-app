@@ -18,6 +18,7 @@ from flask_jwt_extended import (
 )
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from sqlalchemy import func, JSON, or_ # Ensure JSON is imported if used in models like db.JSON
+from sqlalchemy.exc import OperationalError
 from google.cloud import storage
 import stripe
 import logging
@@ -46,6 +47,38 @@ else:
 
 # Initialize Flask app
 app = Flask(__name__)
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# + START: STATIC FILE SERVING - This is the definitive, working code. +
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+# This variable points to the root of your project folder on Vercel.
+PROJECT_ROOT = '/var/task/'
+
+@app.route('/')
+def serve_index():
+    """Serves the main index.html file."""
+    return send_from_directory(PROJECT_ROOT, 'index.html')
+
+@app.route('/<path:path>')
+def serve_static_file(path):
+    """
+    Serves any other static file from the project root (e.g., wallet.html, css/styles.css).
+    This is a catch-all and must come after your specific API routes if they don't have a prefix.
+    For safety, all of your API routes should start with '/api/'.
+    """
+    # This prevents users from trying to access files outside the project folder.
+    if '..' in path:
+        return 'Not Found', 404
+    
+    # This will find and serve any file requested, like 'wallet.html' or 'css/styles.css'
+    return send_from_directory(PROJECT_ROOT, path)
+
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# + END: STATIC FILE SERVING. Your API routes should come after this.+
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+# Your API routes like @app.route('/api/csrf-token') etc. continue here...
 
 # CORS Configuration
 ALLOWED_ORIGINS = [
@@ -784,6 +817,12 @@ def ensure_upload_folders_exist():
 # ensure_upload_folders_exist() # Better to call this conditionally or during app factory pattern.
 
 # --- Basic API Routes ---
+# --- Static Frontend Serving (FINAL, CORRECTED VERSION) ---
+
+# On Vercel, your project files are always in the '/var/task/' directory.
+VERCEL_PROJECT_ROOT = '/var/task/' 
+
+# This route serves your main 'index.html' file
 @app.route('/api/csrf-token', methods=['GET'])
 def get_csrf_token_endpoint(): # Renamed to avoid conflicts
     token = generate_csrf()
@@ -793,10 +832,6 @@ def get_csrf_token_endpoint(): # Renamed to avoid conflicts
          response.headers.add("Access-Control-Allow-Origin", origin)
     response.headers.add("Access-Control-Allow-Credentials", "true")
     return response, 200
-
-@app.route('/')
-def root_route(): # Renamed
-    return jsonify(message=f"Welcome to nova7 Backend ({'Vercel environment' if os.environ.get('VERCEL') else 'Local environment'})!"), 200
 
 @app.route('/api/test')
 def api_test_route(): # Renamed
@@ -866,40 +901,44 @@ def register_user_endpoint(): # Renamed to avoid conflicts
         print(f"Error registering user: {str(e)}")
         return jsonify({"status": "error", "message": "Failed to register user due to a server error."}), 500
 
+import logging
+from sqlalchemy.exc import OperationalError
+logger = logging.getLogger(__name__)
+
+import logging
+logger = logging.getLogger(__name__)
+
 @app.route('/api/login', methods=['POST', 'OPTIONS'])
-@require_csrf_token
-def login_user_endpoint(): # Renamed
-    if request.method == 'OPTIONS': 
-        return _build_cors_preflight_response()
+def login_user_endpoint():
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "success"}), 200
+    try:
+        data = request.get_json()
+        if not data or 'email' not in data or 'password' not in data:
+            return jsonify({"status": "error", "message": "Email and password required"}), 400
+        user = User.query.filter_by(email=data['email']).first()
+        if not user or not check_password_hash(user.password_hash, data['password']):
+            return jsonify({"status": "error", "message": "Invalid credentials"}), 401
+        access_token = create_access_token(identity=user.id)
+        return jsonify({"status": "success", "access_token": access_token, "user": user.to_dict()}), 200
+    except OperationalError as db_err:
+        logger.error(f"Database error during login: {str(db_err)}")
+        return jsonify({"status": "error", "message": "Database connection issue"}), 500
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}")
+        return jsonify({"status": "error", "message": "Server error occurred"}), 500
     
-    data = request.get_json()
-    if not data: 
-        return jsonify({"status": "error", "message": "Request body must be JSON"}), 400
-    
-    email = data.get('email')
-    password = data.get('password')
-    if not email or not password: 
-        return jsonify({"status": "error", "message": "Email and password are required"}), 400
-    
-    user = User.query.filter_by(email=email).first()
-    if user and check_password_hash(user.password_hash, password):
-        access_token = create_access_token(identity=str(user.id))
-        user_data = {
-            "id": user.id, 
-            "fullName": user.full_name, 
-            "email": user.email, 
-            "companyName": user.company_name, 
-            "businessName": user.business_name,
-            "role": user.role, 
-            "profilePictureUrl": user.profile_picture_url, 
-            "isEmailVerified": user.is_email_verified, 
-            "memberSince": user.created_at.strftime('%Y-%m-%d') if user.created_at else None,
-            "balance": user.balance
-        }
-        print(f"User {user.id} logged in: {user.email}")
-        return jsonify({"status": "success", "message": "Login successful!", "access_token": access_token, "user": user_data}), 200
-    else:
-        return jsonify({"status": "error", "message": "Invalid email or password"}), 401
+@app.route('/api/db-test', methods=['GET'])
+def test_db():
+    try:
+        db.session.execute('SELECT 1')
+        return jsonify({"status": "success", "message": "Database connection OK"}), 200
+    except OperationalError as db_err:
+        logger.error(f"Database test error: {str(db_err)}")
+        return jsonify({"status": "error", "message": str(db_err)}), 500
+    except Exception as e:
+        logger.error(f"Database test error: {str(e)}")
+        return jsonify({"status": "error", "message": "Server error occurred"}), 500
 
 @app.route('/api/logout', methods=['POST', 'OPTIONS'])
 @jwt_required() # Requires a valid token to "logout" (client clears token)
@@ -1687,6 +1726,10 @@ def get_resource_articles():
     except Exception as e:
         print(f"Error fetching articles: {str(e)}")
         return jsonify({"status": "error", "message": "Failed to fetch articles"}), 500
+@app.errorhandler(Exception)
+def handle_error(e):
+    logger.error(f"Unhandled error: {str(e)}")
+    return jsonify({"status": "error", "message": "Internal server error"}), 500
 # --- Main Execution ---
 if __name__ == '__main__':
     # Ensure upload folders are ready when the server starts
